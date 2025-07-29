@@ -94,7 +94,7 @@ interface ICron<T extends string = string> {
   /**
    * The callback function to execute on each tick of the cron job.
    */
-  callback: () => void;
+  callback: () => void | Promise<void>;
   /**
    * The function to execute on each tick of the cron job.
    */
@@ -104,6 +104,14 @@ interface ICron<T extends string = string> {
    */
   onComplete: () => void;
   /**
+   * The function to execute when the cron job encounters an error.
+   */
+  onError?: (error: Error) => void;
+  /**
+   * The priority level of the cron job.
+   */
+  priority: number;
+  /**
    * Starts the cron job.
    */
   start: () => void;
@@ -111,6 +119,14 @@ interface ICron<T extends string = string> {
    * Stops the cron job.
    */
   stop: () => void;
+  /**
+   * Pauses the cron job.
+   */
+  pause: () => void;
+  /**
+   * Resumes the cron job.
+   */
+  resume: () => void;
   /**
    * Destroys the cron job.
    */
@@ -145,6 +161,20 @@ interface ICron<T extends string = string> {
    * @returns The time until the next execution of the cron job.
    */
   time: () => number;
+  /**
+   * Gets the execution history of the cron job.
+   * @returns Array of execution history entries.
+   */
+  getHistory: () => ExecutionHistory[];
+  /**
+   * Gets the metrics of the cron job.
+   * @returns Job metrics object.
+   */
+  getMetrics: () => JobMetrics;
+  /**
+   * Resets the metrics and history of the cron job.
+   */
+  resetMetrics: () => void;
 }
 
 /**
@@ -193,7 +223,7 @@ type CronOptions<T extends string = string> = {
   /**
    * The callback function to execute on each tick of the cron job.
    */
-  callback: () => void;
+  callback: () => void | Promise<void>;
   /**
    * The optional function to execute on each tick of the cron job.
    */
@@ -203,12 +233,68 @@ type CronOptions<T extends string = string> = {
    */
   onComplete?: () => void;
   /**
+   * The optional function to execute when the cron job encounters an error.
+   */
+  onError?: (error: Error) => void;
+  /**
    * Whether to start the cron job immediately upon creation.
    */
   start?: boolean;
+  /**
+   * Priority level for job execution (higher numbers = higher priority)
+   */
+  priority?: number;
+  /**
+   * Maximum number of execution history entries to keep
+   */
+  maxHistory?: number;
+  /**
+   * Whether to persist this job across restarts
+   */
+  persist?: boolean;
 };
 
-type Status = 'running' | 'stopped';
+type Status = 'running' | 'stopped' | 'paused' | 'error';
+
+/**
+ * Execution history entry for a cron job
+ */
+type ExecutionHistory = {
+  timestamp: Date;
+  duration: number;
+  success: boolean;
+  error?: string;
+};
+
+/**
+ * Job metrics for monitoring and analysis
+ */
+type JobMetrics = {
+  totalExecutions: number;
+  successfulExecutions: number;
+  failedExecutions: number;
+  averageExecutionTime: number;
+  lastExecutionTime?: number;
+  lastError?: string;
+};
+
+/**
+ * Persistence options for cron jobs
+ */
+type PersistenceOptions = {
+  enabled: boolean;
+  filePath?: string;
+  autoRestore?: boolean;
+};
+
+/**
+ * Configuration options for the cron scheduler
+ */
+type SchedulerConfig = {
+  pollingInterval?: number;
+  useCalculatedTimeouts?: boolean;
+  maxHistoryEntries?: number;
+};
 
 /**
  * An interface that defines the properties and methods of a baker.
@@ -236,6 +322,16 @@ interface IBaker {
   stop: (name: string) => void;
 
   /**
+   * Pauses the cron job with the specified name.
+   */
+  pause: (name: string) => void;
+
+  /**
+   * Resumes the cron job with the specified name.
+   */
+  resume: (name: string) => void;
+
+  /**
    * Destroys the cron job with the specified name.
    */
   destroy: (name: string) => void;
@@ -244,7 +340,7 @@ interface IBaker {
    * Gets the status of the cron job with the specified name.
    * @returns The status of the cron job.
    */
-  getStatus: (name: string) => string;
+  getStatus: (name: string) => Status;
 
   /**
    * Checks if the cron job with the specified name is running.
@@ -277,6 +373,30 @@ interface IBaker {
   time: (name: string) => number;
 
   /**
+   * Gets the execution history of the cron job with the specified name.
+   * @returns Array of execution history entries.
+   */
+  getHistory: (name: string) => ExecutionHistory[];
+
+  /**
+   * Gets the metrics of the cron job with the specified name.
+   * @returns Job metrics object.
+   */
+  getMetrics: (name: string) => JobMetrics;
+
+  /**
+   * Gets all cron job names.
+   * @returns Array of job names.
+   */
+  getJobNames: () => string[];
+
+  /**
+   * Gets all cron jobs with their status.
+   * @returns Map of job names to their cron instances.
+   */
+  getAllJobs: () => Map<string, ICron>;
+
+  /**
    * Starts all cron jobs.
    */
   bakeAll: () => void;
@@ -287,13 +407,42 @@ interface IBaker {
   stopAll: () => void;
 
   /**
+   * Pauses all cron jobs.
+   */
+  pauseAll: () => void;
+
+  /**
+   * Resumes all cron jobs.
+   */
+  resumeAll: () => void;
+
+  /**
    * Destroys all cron jobs.
    */
   destroyAll: () => void;
+
+  /**
+   * Saves the current state of all jobs to persistence storage.
+   */
+  saveState: () => Promise<void>;
+
+  /**
+   * Restores jobs from persistence storage.
+   */
+  restoreState: () => Promise<void>;
+
+  /**
+   * Resets metrics for all jobs.
+   */
+  resetAllMetrics: () => void;
 }
 
 interface IBakerOptions {
   autoStart?: boolean;
+  schedulerConfig?: SchedulerConfig;
+  persistence?: PersistenceOptions;
+  enableMetrics?: boolean;
+  onError?: (error: Error, jobName: string) => void;
 }
 
 export {
@@ -313,4 +462,8 @@ export {
   type Status,
   type IBaker,
   type IBakerOptions,
+  type ExecutionHistory,
+  type JobMetrics,
+  type PersistenceOptions,
+  type SchedulerConfig,
 };

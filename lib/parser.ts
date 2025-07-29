@@ -253,10 +253,8 @@ class CronParser<T extends string> implements ICronParser {
     }
     if (cronTime.month && !cronTime.month.includes(date.getMonth() + 1)) {
       return false;
-    } else if (
-      cronTime.dayOfWeek &&
-      !cronTime.dayOfWeek.includes(date.getDay())
-    ) {
+    }
+    if (cronTime.dayOfWeek && !cronTime.dayOfWeek.includes(date.getDay())) {
       return false;
     }
     return true;
