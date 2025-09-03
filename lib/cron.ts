@@ -37,6 +37,8 @@ class Cron<T extends string = string> implements ICron<T> {
   private maxHistory: number;
   private useCalculatedTimeouts: boolean;
   private pollingInterval: number;
+  private immediate: boolean;
+  private initialDelayMs?: number;
 
   /**
    * Creates a new instance of the `Cron` class.
@@ -59,6 +61,8 @@ class Cron<T extends string = string> implements ICron<T> {
     this.maxHistory = options.maxHistory ?? 100;
     this.useCalculatedTimeouts = config?.useCalculatedTimeouts ?? true;
     this.pollingInterval = config?.pollingInterval ?? 1000;
+    this.immediate = options.immediate ?? false;
+    this.initialDelayMs = this.parseDelay(options.delay);
 
     this.start = this.start.bind(this);
     this.stop = this.stop.bind(this);
@@ -135,8 +139,13 @@ class Cron<T extends string = string> implements ICron<T> {
       return;
     }
     this.status = "running";
-    this.next = this.parser.getNext();
 
+    if (this.immediate) {
+      this.scheduleImmediateFirstRun();
+      return;
+    }
+
+    this.next = this.parser.getNext();
     if (this.useCalculatedTimeouts) {
       this.scheduleWithTimeout();
     } else {
@@ -174,6 +183,41 @@ class Cron<T extends string = string> implements ICron<T> {
         this.scheduleWithTimeout();
       }
     }, delay);
+  }
+
+  /**
+   * Schedule a one-off immediate or delayed first run, then fall back to normal scheduling
+   */
+  private scheduleImmediateFirstRun(): void {
+    if (this.status !== "running") return;
+    const targetDelay = Math.max(0, this.initialDelayMs ?? 0);
+    const MAX_TIMEOUT_VALUE = 2147483647; // ~24.8 days
+
+    if (targetDelay > MAX_TIMEOUT_VALUE) {
+      const targetTime = Date.now() + targetDelay;
+      this.interval = setInterval(async () => {
+        if (this.status !== "running") return;
+        if (Date.now() >= targetTime) {
+          if (this.interval) {
+            clearInterval(this.interval);
+            this.interval = null;
+          }
+          await this.executeJob();
+          this.next = this.parser.getNext();
+          if (this.useCalculatedTimeouts) this.scheduleWithTimeout();
+          else this.scheduleWithInterval();
+        }
+      }, Math.min(this.pollingInterval, 1000));
+      return;
+    }
+
+    this.timeout = setTimeout(async () => {
+      if (this.status !== "running") return;
+      await this.executeJob();
+      this.next = this.parser.getNext();
+      if (this.useCalculatedTimeouts) this.scheduleWithTimeout();
+      else this.scheduleWithInterval();
+    }, targetDelay);
   }
 
   /**
@@ -330,6 +374,19 @@ class Cron<T extends string = string> implements ICron<T> {
       failedExecutions: 0,
       averageExecutionTime: 0,
     };
+  }
+
+  /** Parse a human-friendly delay string or number into milliseconds */
+  private parseDelay(delay?: number | string): number | undefined {
+    if (delay === undefined || delay === null) return undefined;
+    if (typeof delay === "number") return delay >= 0 ? delay : 0;
+    const str = String(delay).trim().toLowerCase();
+    const match = str.match(/^(\d+)\s*(ms|s|m|h|d)?$/);
+    if (!match) return undefined;
+    const value = parseInt(match[1], 10);
+    const unit = match[2] ?? "ms";
+    const factor = unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60000 : unit === "h" ? 3600000 : 86400000;
+    return value * factor;
   }
 
   /**

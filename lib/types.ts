@@ -252,6 +252,15 @@ type CronOptions<T extends string = string> = {
    * Whether to persist this job across restarts
    */
   persist?: boolean;
+  /**
+   * If true, run the first callback immediately on start (before schedule)
+   */
+  immediate?: boolean;
+  /**
+   * If set with `immediate: true`, delay the first run by this amount.
+   * Accepts number (ms) or strings like '500ms', '10s', '2m', '1h'.
+   */
+  delay?: number | string;
 };
 
 type Status = 'running' | 'stopped' | 'paused' | 'error';

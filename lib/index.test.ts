@@ -360,8 +360,37 @@ describe("Baker", () => {
     });
 
     expect(cron).toBeDefined();
-
+    
     persistenceBaker.destroyAll();
+  });
+
+  it("should run immediately when immediate is true", async () => {
+    const cb = jest.fn();
+    baker.add({
+      name: "immediate",
+      cron: "0 0 0 1 1 *",
+      callback: cb,
+      immediate: true,
+    });
+    baker.bake("immediate");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("should delay first run when immediate and delay are set", async () => {
+    const cb = jest.fn();
+    baker.add({
+      name: "delayed",
+      cron: "0 0 0 1 1 *",
+      callback: cb,
+      immediate: true,
+      delay: "50ms",
+    });
+    baker.bake("delayed");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(cb).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 });
 
