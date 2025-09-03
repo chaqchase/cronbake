@@ -18,8 +18,10 @@ describe('Persistence Providers', () => {
     });
     await sleep(10);
     expect(baker2.getJobNames()).toContain('file-job');
-    baker2.destroyAll();
-    baker1.destroyAll();
+    // Stop timers and persist final state before cleanup
+    baker2.stopAll();
+    baker1.stopAll();
+    await baker2.saveState();
     cleanupFile(filePath);
   });
 
