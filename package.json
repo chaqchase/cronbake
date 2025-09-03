@@ -2,7 +2,7 @@
   "name": "cronbake",
   "description": "A powerful and flexible cron job manager built with TypeScript",
   "module": "dist/index.js",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },
