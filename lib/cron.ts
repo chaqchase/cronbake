@@ -37,6 +37,8 @@ class Cron<T extends string = string> implements ICron<T> {
   private maxHistory: number;
   private useCalculatedTimeouts: boolean;
   private pollingInterval: number;
+  private overrunProtection: boolean;
+  private isExecuting: boolean = false;
   private immediate: boolean;
   private initialDelayMs?: number;
 
@@ -61,6 +63,7 @@ class Cron<T extends string = string> implements ICron<T> {
     this.maxHistory = options.maxHistory ?? 100;
     this.useCalculatedTimeouts = config?.useCalculatedTimeouts ?? true;
     this.pollingInterval = config?.pollingInterval ?? 1000;
+    this.overrunProtection = options.overrunProtection ?? true;
     this.immediate = options.immediate ?? false;
     this.initialDelayMs = this.parseDelay(options.delay);
 
@@ -225,11 +228,13 @@ class Cron<T extends string = string> implements ICron<T> {
    */
   private scheduleWithInterval(): void {
     this.interval = setInterval(async () => {
-      if (
-        this.next &&
-        this.next.getTime() <= Date.now() &&
-        this.status === "running"
-      ) {
+      if (this.overrunProtection && this.isExecuting) {
+        // Overrun protection: skip overlapping start
+        this.metrics.skippedExecutions = (this.metrics.skippedExecutions ?? 0) + 1;
+        return;
+      }
+
+      if (this.next && this.next.getTime() <= Date.now() && this.status === "running") {
         await this.executeJob();
         this.next = this.parser.getNext();
       }
@@ -243,6 +248,7 @@ class Cron<T extends string = string> implements ICron<T> {
     const startTime = Date.now();
     let success = true;
     let error: string | undefined;
+    this.isExecuting = true;
 
     try {
       await CBResolver(this.callback, this.onError);
@@ -261,6 +267,9 @@ class Cron<T extends string = string> implements ICron<T> {
           console.warn("Error handler failed:", handlerError);
         }
       }
+    }
+    finally {
+      this.isExecuting = false;
     }
 
     const duration = Date.now() - startTime;

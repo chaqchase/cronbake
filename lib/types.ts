@@ -253,6 +253,15 @@ type CronOptions<T extends string = string> = {
    */
   persist?: boolean;
   /**
+   * Enable overrun protection: if a previous execution is still running
+   * when the next schedule is due, skip starting a new one.
+   * Defaults to true for safety.
+   */
+  overrunProtection?: boolean;
+  /**
+   * If true, run the first callback immediately on start (before schedule)
+   */
+  /**
    * If true, run the first callback immediately on start (before schedule)
    */
   immediate?: boolean;
@@ -285,6 +294,7 @@ type JobMetrics = {
   averageExecutionTime: number;
   lastExecutionTime?: number;
   lastError?: string;
+  skippedExecutions?: number;
 };
 
 /**

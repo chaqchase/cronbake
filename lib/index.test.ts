@@ -364,6 +364,71 @@ describe("Baker", () => {
     persistenceBaker.destroyAll();
   });
 
+  it("should prevent overrun when enabled (interval mode)", async () => {
+    const configuredBaker = new Baker({
+      schedulerConfig: {
+        pollingInterval: 5,
+        useCalculatedTimeouts: false,
+      },
+    });
+
+    let calls = 0;
+    const slow = async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 150));
+    };
+
+    configuredBaker.add({
+      name: "ovp-on",
+      cron: "* * * * * *",
+      callback: slow,
+      overrunProtection: true,
+    });
+
+    // Start and wait until next second boundary passes
+    configuredBaker.bake("ovp-on");
+    const msToNext = 1000 - (Date.now() % 1000);
+    await new Promise((r) => setTimeout(r, msToNext + 50));
+
+    // Allow some time for potential overlapping
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toBeLessThanOrEqual(1);
+
+    configuredBaker.destroyAll();
+  });
+
+  it("should allow overrun when disabled (interval mode)", async () => {
+    const configuredBaker = new Baker({
+      schedulerConfig: {
+        pollingInterval: 5,
+        useCalculatedTimeouts: false,
+      },
+    });
+
+    let calls = 0;
+    const slow = async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 150));
+    };
+
+    configuredBaker.add({
+      name: "ovp-off",
+      cron: "* * * * * *",
+      callback: slow,
+      overrunProtection: false,
+    });
+
+    configuredBaker.bake("ovp-off");
+    const msToNext = 1000 - (Date.now() % 1000);
+    await new Promise((r) => setTimeout(r, msToNext + 50));
+
+    // Allow some time for overlapping starts
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toBeGreaterThanOrEqual(2);
+
+    configuredBaker.destroyAll();
+  });
+
   it("should run immediately when immediate is true", async () => {
     const cb = jest.fn();
     baker.add({
