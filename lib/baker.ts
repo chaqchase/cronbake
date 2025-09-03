@@ -1,4 +1,4 @@
-import Cron from '@/lib/cron';
+import Cron from './cron';
 import { 
   CronOptions, 
   IBaker, 
@@ -9,7 +9,7 @@ import {
   JobMetrics,
   SchedulerConfig,
   PersistenceOptions 
-} from '@/lib/types';
+} from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 
