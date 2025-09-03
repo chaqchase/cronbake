@@ -1,17 +1,17 @@
 import Cron from './cron';
-import { 
-  CronOptions, 
-  IBaker, 
-  IBakerOptions, 
-  ICron, 
-  Status, 
-  ExecutionHistory, 
+import {
+  CronOptions,
+  IBaker,
+  IBakerOptions,
+  ICron,
+  Status,
+  ExecutionHistory,
   JobMetrics,
   SchedulerConfig,
-  PersistenceOptions 
+  PersistenceOptions,
 } from './types';
-import * as fs from 'fs';
-import * as path from 'path';
+import { FilePersistenceProvider } from './persistence/file';
+import type { PersistenceProvider } from './persistence/types';
 
 /**
  * A class that implements the `IBaker` interface and provides methods to manage cron jobs.
@@ -20,6 +20,7 @@ class Baker implements IBaker {
   private crons: Map<string, ICron> = new Map();
   private config: SchedulerConfig;
   private persistence: PersistenceOptions;
+  private persistenceProvider?: PersistenceProvider;
   private enableMetrics: boolean;
   private onError?: (error: Error, jobName: string) => void;
 
@@ -34,7 +35,20 @@ class Baker implements IBaker {
       enabled: options.persistence?.enabled ?? false,
       filePath: options.persistence?.filePath ?? './cronbake-state.json',
       autoRestore: options.persistence?.autoRestore ?? true,
+      strategy: options.persistence?.strategy ?? 'file',
+      provider: options.persistence?.provider,
+      redis: options.persistence?.redis,
     };
+
+    if (this.persistence.enabled) {
+      if (this.persistence.provider) {
+        this.persistenceProvider = this.persistence.provider;
+      } else if (this.persistence.strategy === 'file') {
+        this.persistenceProvider = new FilePersistenceProvider(this.persistence.filePath!);
+      } else if (this.persistence.strategy === 'redis') {
+        throw new Error('Redis persistence selected but no provider supplied. Pass persistence.provider or use FilePersistenceProvider.');
+      }
+    }
     
     this.enableMetrics = options.enableMetrics ?? true;
     this.onError = options.onError;
@@ -225,58 +239,40 @@ class Baker implements IBaker {
   }
 
   async saveState(): Promise<void> {
-    if (!this.persistence.enabled) return;
-
+    if (!this.persistence.enabled || !this.persistenceProvider) return;
     try {
       const state = {
+        version: 1,
         timestamp: new Date().toISOString(),
         jobs: Array.from(this.crons.entries()).map(([name, cron]) => ({
           name,
-          cron: cron.cron,
+          cron: String(cron.cron),
           status: cron.getStatus(),
           priority: cron.priority,
           metrics: this.enableMetrics ? cron.getMetrics() : undefined,
           history: this.enableMetrics ? cron.getHistory() : undefined,
         })),
         config: this.config,
-      };
-
-      const filePath = path.resolve(this.persistence.filePath!);
-      const dir = path.dirname(filePath);
-      
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      await fs.promises.writeFile(filePath, JSON.stringify(state, null, 2), 'utf8');
+      } as const;
+      await this.persistenceProvider.save(state);
     } catch (error) {
       throw new Error(`Failed to save state: ${error}`);
     }
   }
 
   async restoreState(): Promise<void> {
-    if (!this.persistence.enabled) return;
-
+    if (!this.persistence.enabled || !this.persistenceProvider) return;
     try {
-      const filePath = path.resolve(this.persistence.filePath!);
-      
-      if (!fs.existsSync(filePath)) {
-        return;
-      }
-
-      const data = await fs.promises.readFile(filePath, 'utf8');
-      const state = JSON.parse(data);
-
+      const state = await this.persistenceProvider.load();
+      if (!state) return;
       if (!state.jobs || !Array.isArray(state.jobs)) {
-        throw new Error('Invalid state file format');
+        throw new Error('Invalid state format');
       }
-
       for (const jobData of state.jobs) {
         if (!jobData.name || !jobData.cron) {
           console.warn('Skipping invalid job data:', jobData);
           continue;
         }
-
         try {
           const options: CronOptions = {
             name: jobData.name,
@@ -287,13 +283,11 @@ class Baker implements IBaker {
             priority: jobData.priority,
             start: jobData.status === 'running',
           };
-
           this.add(options);
         } catch (error) {
           console.warn(`Failed to restore job '${jobData.name}':`, error);
         }
       }
-
       console.log(`Restored ${state.jobs.length} cron jobs from persistence`);
     } catch (error) {
       throw new Error(`Failed to restore state: ${error}`);

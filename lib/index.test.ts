@@ -364,6 +364,7 @@ describe("Baker", () => {
     persistenceBaker.destroyAll();
   });
 
+
   it("should prevent overrun when enabled (interval mode)", async () => {
     const configuredBaker = new Baker({
       schedulerConfig: {

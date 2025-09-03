@@ -300,10 +300,22 @@ type JobMetrics = {
 /**
  * Persistence options for cron jobs
  */
+import type { PersistenceProvider } from "./persistence/types";
+
+type PersistenceStrategy = 'file' | 'redis' | 'custom';
+
+type RedisPersistenceOptions = {
+  key?: string;
+  // user must provide a client via provider for now; kept for future extension
+};
+
 type PersistenceOptions = {
   enabled: boolean;
   filePath?: string;
   autoRestore?: boolean;
+  strategy?: PersistenceStrategy;
+  provider?: PersistenceProvider;
+  redis?: RedisPersistenceOptions;
 };
 
 /**
@@ -485,4 +497,5 @@ export {
   type JobMetrics,
   type PersistenceOptions,
   type SchedulerConfig,
+  type PersistenceStrategy,
 };
