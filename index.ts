@@ -1,4 +1,4 @@
-import Baker from '@/lib';
+import Baker from "./lib";
 
 export {
   type CronOptions,
@@ -17,7 +17,17 @@ export {
   type OnDayStrType,
   type day,
   type unit,
-} from '@/lib';
+} from "./lib";
 
-export { Cron, Baker, CronParser } from '@/lib';
+export { Cron, Baker, CronParser } from "./lib";
 export default Baker;
+
+export {
+  FilePersistenceProvider,
+  RedisPersistenceProvider,
+  PersistedJob,
+  PersistedState,
+  PersistenceProvider,
+  RedisLikeClient,
+  RedisProviderOptions,
+} from "./lib/persistence";

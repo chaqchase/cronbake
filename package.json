@@ -1,8 +1,8 @@
 {
   "name": "cronbake",
   "description": "A powerful and flexible cron job manager built with TypeScript",
-  "module": "index.ts",
-  "version": "0.2.0",
+  "module": "dist/index.js",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },
@@ -41,7 +41,8 @@
   "devDependencies": {
     "bun-types": "latest",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@changesets/cli": "^2.27.1"
   },
   "license": "MIT",
   "keywords": [
@@ -65,7 +66,5 @@
     "task schedule manager task",
     "task schedule manager job task"
   ],
-  "dependencies": {
-    "@changesets/cli": "^2.27.1"
-  }
+  "dependencies": {}
 }

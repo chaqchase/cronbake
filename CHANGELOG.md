@@ -1,5 +1,32 @@
 # cronbake
 
+## 0.3.0
+
+### Minor Changes
+
+- Immediate/delayed first run: Add `immediate` and `delay` options so the first callback can run right away or after a configurable delay (e.g., `"10s"`).
+- Overrun protection: Add `overrunProtection` (default: true) to skip starting a new run if the previous execution is still running; tracks `skippedExecutions` in metrics.
+- Pluggable persistence: Refactor persistence to use providers. Add `FilePersistenceProvider` (JSON on disk) and `RedisPersistenceProvider` (single-key JSON via injected client). New `persistence.strategy` and `persistence.provider` options.
+
+### Features
+
+- New Cron options: `immediate`, `delay`, `overrunProtection`.
+- New metrics: `skippedExecutions`.
+- New persistence API: `PersistenceProvider` with `save/load` and types for persisted state.
+- Export providers from package API: `FilePersistenceProvider`, `RedisPersistenceProvider`.
+
+### Fixes
+
+- Parser: Correct `@on_<day>` mapping to Sunday=0…Saturday=6, fix `@every_<n>_months` to run on day 1 (`0 0 0 1 */n *`), and `@every_<n>_dayOfWeek` to `*/n` on day-of-week.
+- Types: Replace `Timer` with `ReturnType<typeof setTimeout|setInterval>` for portability.
+- Build: Replace `@/lib` path aliases in source with relative imports to avoid bundler resolution issues.
+- Packaging: Set `module` to `dist/index.js`, move `@changesets/cli` to devDependencies, ensure Changesets access is public.
+
+### Tests
+
+- Add tests for immediate/delayed first run and overrun protection.
+- Add provider-focused tests and shared test utilities for persistence (file and Redis via a fake client).
+
 ## 0.2.0
 
 ### Minor Changes

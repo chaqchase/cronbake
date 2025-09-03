@@ -7,7 +7,7 @@ import {
   type EveryStrType,
   type ICronParser,
   type OnDayStrType,
-} from "@/lib/types";
+} from "./types";
 
 /**
  * A class that implements the `ICronParser` interface and provides methods to parse a cron expression
@@ -48,9 +48,11 @@ class CronParser<T extends string> implements ICronParser {
       case "dayOfMonth":
         return `0 0 0 */${value} * *`;
       case "months":
-        return `0 0 0 0 */${value} *`;
+        // Run at midnight on the 1st day every N months
+        return `0 0 0 1 */${value} *`;
       case "dayOfWeek":
-        return `0 0 0 0 0 */${value}`;
+        // Run at midnight on every Nth day-of-week (e.g., */2 => Sun, Tue, Thu, Sat)
+        return `0 0 0 * * */${value}`;
       default:
         return "* * * * * *";
     }
@@ -71,13 +73,13 @@ class CronParser<T extends string> implements ICronParser {
   private parseOnDayStr(str: OnDayStrType): string {
     const [, day, _unit] = str.split("_");
     const days = new Map([
-      ["sunday", 1],
-      ["monday", 2],
-      ["tuesday", 3],
-      ["wednesday", 4],
-      ["thursday", 5],
-      ["friday", 6],
-      ["saturday", 7],
+      ["sunday", 0],
+      ["monday", 1],
+      ["tuesday", 2],
+      ["wednesday", 3],
+      ["thursday", 4],
+      ["friday", 5],
+      ["saturday", 6],
     ]);
     return `0 0 0 * * ${days.get(day)}`;
   }

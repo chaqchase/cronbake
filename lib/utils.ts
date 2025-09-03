@@ -6,7 +6,10 @@ const resolveIfPromise = async (value: any) =>
  * @param callback - The callback function to execute
  * @param onError - Optional error handler
  */
-const CBResolver = async (callback?: () => void, onError?: (error: Error) => void) => {
+const CBResolver = async (
+  callback?: () => void | Promise<void>,
+  onError?: (error: Error) => void
+) => {
   try {
     if (callback) {
       await resolveIfPromise(callback());

@@ -46,6 +46,11 @@ Cronbake provides two scheduling modes for optimal performance:
 - **Calculated Timeouts** (default): More efficient scheduling using precise timeout calculations
 - **Polling Interval**: Traditional polling-based scheduling with configurable intervals
 
+Additional scheduling controls:
+
+- **Immediate/Delayed First Run**: Run the first callback immediately (`immediate: true`) or after a delay (`delay: '10s'`).
+- **Overrun Protection**: Skip new starts if a previous run is still executing (`overrunProtection: true`).
+
 #### Cron Job Management
 
 Cronbake provides a simple and intuitive interface for managing cron jobs. You can easily add, remove, start, stop, pause, resume, and destroy cron jobs using the `Baker` class.
@@ -77,7 +82,7 @@ Track detailed execution history and performance metrics including:
 
 Cronbake supports job persistence across application restarts:
 
-- Save job state to file system
+- Save job state to file system or Redis (pluggable providers)
 - Automatic restoration on startup
 - Configurable persistence options
 
@@ -153,6 +158,27 @@ const everyMinuteJob = baker.add({
 });
 
 // Start all cron jobs
+baker.bakeAll();
+```
+
+#### Immediate/Delayed First Run and Overrun Protection
+
+```typescript
+import Baker from 'cronbake';
+
+const baker = Baker.create();
+
+baker.add({
+  name: 'fast-job',
+  cron: '@every_10_seconds',
+  immediate: true,      // run the first time right away
+  delay: '2s',          // but wait 2 seconds before that first run
+  overrunProtection: true, // skip overlaps if a previous run still executes
+  callback: async () => {
+    // Do work
+  },
+});
+
 baker.bakeAll();
 ```
 
@@ -254,6 +280,35 @@ await baker.saveState();
 await baker.restoreState();
 ```
 
+#### Persistence Providers (File and Redis)
+
+Cronbake uses pluggable providers for persistence. A file provider is included by default. A Redis provider is available; you inject your Redis client.
+
+```typescript
+import { Baker, FilePersistenceProvider, RedisPersistenceProvider } from 'cronbake';
+
+// File-based
+const bakerFile = Baker.create({
+  persistence: {
+    enabled: true,
+    strategy: 'file',
+    provider: new FilePersistenceProvider('./cronbake-state.json'),
+    autoRestore: true,
+  },
+});
+
+// Redis-based (provide your own client implementing get/set)
+const redisProvider = new RedisPersistenceProvider({ client: redisClient, key: 'cronbake:state' });
+const bakerRedis = Baker.create({
+  persistence: {
+    enabled: true,
+    strategy: 'redis',
+    provider: redisProvider,
+    autoRestore: true,
+  },
+});
+```
+
 ### Baker Methods
 
 | Method | Description |
@@ -309,6 +364,8 @@ const job = Cron.create({
     console.error('Job failed:', error.message);
   },
   priority: 10,
+  immediate: false,
+  overrunProtection: true,
 });
 
 // Start the cron job
@@ -326,7 +383,10 @@ const nextExecution = job.nextExecution();
 // Get metrics and history
 const metrics = job.getMetrics();
 const history = job.getHistory();
+// Metrics include skippedExecutions when overrun protection skips overlaps
 ```
+
+ 
 
 Cronbake also provides utility functions for parsing cron expressions, getting the next or previous execution times, and validating cron expressions.
 

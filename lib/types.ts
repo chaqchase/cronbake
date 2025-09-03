@@ -252,6 +252,24 @@ type CronOptions<T extends string = string> = {
    * Whether to persist this job across restarts
    */
   persist?: boolean;
+  /**
+   * Enable overrun protection: if a previous execution is still running
+   * when the next schedule is due, skip starting a new one.
+   * Defaults to true for safety.
+   */
+  overrunProtection?: boolean;
+  /**
+   * If true, run the first callback immediately on start (before schedule)
+   */
+  /**
+   * If true, run the first callback immediately on start (before schedule)
+   */
+  immediate?: boolean;
+  /**
+   * If set with `immediate: true`, delay the first run by this amount.
+   * Accepts number (ms) or strings like '500ms', '10s', '2m', '1h'.
+   */
+  delay?: number | string;
 };
 
 type Status = 'running' | 'stopped' | 'paused' | 'error';
@@ -276,15 +294,28 @@ type JobMetrics = {
   averageExecutionTime: number;
   lastExecutionTime?: number;
   lastError?: string;
+  skippedExecutions?: number;
 };
 
 /**
  * Persistence options for cron jobs
  */
+import type { PersistenceProvider } from "./persistence/types";
+
+type PersistenceStrategy = 'file' | 'redis' | 'custom';
+
+type RedisPersistenceOptions = {
+  key?: string;
+  // user must provide a client via provider for now; kept for future extension
+};
+
 type PersistenceOptions = {
   enabled: boolean;
   filePath?: string;
   autoRestore?: boolean;
+  strategy?: PersistenceStrategy;
+  provider?: PersistenceProvider;
+  redis?: RedisPersistenceOptions;
 };
 
 /**
@@ -466,4 +497,5 @@ export {
   type JobMetrics,
   type PersistenceOptions,
   type SchedulerConfig,
+  type PersistenceStrategy,
 };

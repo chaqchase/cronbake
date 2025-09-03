@@ -1,6 +1,8 @@
-import Cron from "@/lib/cron";
-import Baker from "@/lib/baker";
-import CronParser from "@/lib/parser";
+import Cron from "./cron";
+import Baker from "./baker";
+import CronParser from "./parser";
+import { FilePersistenceProvider } from "./persistence/file";
+import { RedisPersistenceProvider } from "./persistence/redis";
 
 export {
   type CronOptions,
@@ -19,7 +21,7 @@ export {
   type OnDayStrType,
   type day,
   type unit,
-} from "@/lib/types";
+} from "./types";
 
-export { Cron, Baker, CronParser };
+export { Cron, Baker, CronParser, FilePersistenceProvider, RedisPersistenceProvider };
 export default Baker;
