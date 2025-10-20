@@ -25,12 +25,12 @@ class CronParser<T extends string> implements ICronParser {
   private readonly aliases: Map<CronExpression, string> = new Map([
     ["@every_second", "* * * * * *"],
     ["@every_minute", "0 * * * * *"],
-    ["@yearly", "0 0 1 1 * *"],
-    ["@annually", "0 0 1 1 * *"],
-    ["@monthly", "0 0 1 * * *"],
-    ["@weekly", "0 0 * * 0 *"],
-    ["@daily", "0 0 * * * *"],
-    ["@hourly", "0 * * * * *"],
+    ["@yearly", "0 0 0 1 1 *"],
+    ["@annually", "0 0 0 1 1 *"],
+    ["@monthly", "0 0 0 1 * *"],
+    ["@weekly", "0 0 0 * * 0"],
+    ["@daily", "0 0 0 * * *"],
+    ["@hourly", "0 0 * * * *"],
   ]);
 
   /**
@@ -68,10 +68,10 @@ class CronParser<T extends string> implements ICronParser {
   }
 
   /**
-   * Parses a string in the format "@on_<day>_<unit>" and returns the corresponding cron expression.
+   * Parses a string in the format "@on_<day>" and returns the corresponding cron expression.
    */
   private parseOnDayStr(str: OnDayStrType): string {
-    const [, day, _unit] = str.split("_");
+    const [, day] = str.split("_");
     const days = new Map([
       ["sunday", 0],
       ["monday", 1],
