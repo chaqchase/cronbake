@@ -21,16 +21,24 @@ class CronParser<T extends string> implements ICronParser {
 
   /**
    * A map of cron expression aliases to their corresponding cron expressions.
+   *    * * * * * * (second minute hour day month day-of-week)
+   *    | | | | | |
+   *    | | | | | +-- day of the week (0 - 6) (Sunday to Saturday)
+   *    | | | | +---- month (1 - 12)
+   *    | | | +------ day of the month (1 - 31)
+   *    | | +-------- hour (0 - 23)
+   *    | +---------- minute (0 - 59)
+   *    +------------ second (0 - 59)
    */
   private readonly aliases: Map<CronExpression, string> = new Map([
     ["@every_second", "* * * * * *"],
     ["@every_minute", "0 * * * * *"],
-    ["@yearly", "0 0 0 1 1 *"],
-    ["@annually", "0 0 0 1 1 *"],
-    ["@monthly", "0 0 0 1 * *"],
-    ["@weekly", "0 0 0 * * 0"],
-    ["@daily", "0 0 0 * * *"],
-    ["@hourly", "0 0 * * * *"],
+    ["@yearly",       "0 0 0 1 1 *"], // 00:00:00 at day 1 of month and Jan
+    ["@annually",     "0 0 0 1 1 *"], // 00:00:00 at day 1 of month and Jan
+    ["@monthly",      "0 0 0 1 * *"], // 00:00:00 at day 1 of month
+    ["@weekly",       "0 0 0 * * 0"], // 00:00:00 at sun
+    ["@daily",        "0 0 0 * * *"], // 00:00:00 every day
+    ["@hourly",       "0 0 * * * *"], // 00:00  every hour
   ]);
 
   /**
