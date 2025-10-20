@@ -76,10 +76,10 @@ class CronParser<T extends string> implements ICronParser {
   }
 
   /**
-   * Parses a string in the format "@on_<day>_<unit>" and returns the corresponding cron expression.
+   * Parses a string in the format "@on_<day>" and returns the corresponding cron expression.
    */
   private parseOnDayStr(str: OnDayStrType): string {
-    const [, day, _unit] = str.split("_");
+    const [, day] = str.split("_");
     const days = new Map([
       ["sunday", 0],
       ["monday", 1],

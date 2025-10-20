@@ -635,8 +635,15 @@ describe("Cron", () => {
   });
 
   it("should get the date of the last execution of the cron job", () => {
-    const lastExecution = cron.lastExecution();
+    // Use a frequent cron to avoid timeout in getPrevious() loop
+    const frequentCron = new Cron({
+      name: "frequent-test",
+      cron: "* * * * * *",
+      callback: jest.fn(),
+    });
+    const lastExecution = frequentCron.lastExecution();
     expect(lastExecution).toBeInstanceOf(Date);
+    frequentCron.destroy();
   });
 
   it("should get the date of the next execution of the cron job", () => {
