@@ -1,5 +1,17 @@
 # cronbake
 
+## 0.3.1
+
+### Patch Changes
+
+- Fix critical parser bugs in cron expression aliases:
+  - `@hourly`: Corrected from running every minute to running every hour at minute 0
+  - `@daily`: Fixed from running every hour to running once daily at midnight
+  - `@weekly`: Fixed invalid cron expression (had month=0) to run at midnight every Sunday
+  - `@monthly`: Corrected hour from 1 AM to midnight on the 1st of each month
+  - `@yearly` & `@annually`: Corrected hour from 1 AM to midnight on January 1st
+  - `parseOnDayStr`: Fixed parsing logic to correctly handle `@on_<day>` format
+
 ## 0.3.0
 
 ### Minor Changes
