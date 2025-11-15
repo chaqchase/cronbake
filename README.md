@@ -379,7 +379,7 @@ const bakerRedis = Baker.create({
 | `lastExecution(name: string)`           | Returns the last execution time of a cron job.                     |
 | `nextExecution(name: string)`           | Returns the next execution time of a cron job.                     |
 | `remaining(name: string)`               | Returns the remaining time until the next execution of a cron job. |
-| `time(name: string)`                    | Returns the current time of a cron job.                            |
+| `time(name: string)`                    | Returns the remaining time until the next execution.               |
 | `getHistory(name: string)`              | Returns the execution history of a cron job.                       |
 | `getMetrics(name: string)`              | Returns the metrics of a cron job.                                 |
 | `getJobNames()`                         | Returns all cron job names.                                        |

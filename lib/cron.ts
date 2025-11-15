@@ -9,7 +9,7 @@ import {
   type JobMetrics,
 } from "./types";
 import CronParser from "./parser";
-import { CBResolver } from "./utils";
+import { CBResolver, resolveIfPromise } from "./utils";
 
 /**
  * A class that implements the `ICron` interface and provides methods manage a cron job.
@@ -41,6 +41,7 @@ class Cron<T extends string = string> implements ICron<T> {
   private isExecuting: boolean = false;
   private immediate: boolean;
   private initialDelayMs?: number;
+  private lastRunTime: Date | null = null;
 
   /**
    * Creates a new instance of the `Cron` class.
@@ -230,11 +231,16 @@ class Cron<T extends string = string> implements ICron<T> {
     this.interval = setInterval(async () => {
       if (this.overrunProtection && this.isExecuting) {
         // Overrun protection: skip overlapping start
-        this.metrics.skippedExecutions = (this.metrics.skippedExecutions ?? 0) + 1;
+        this.metrics.skippedExecutions =
+          (this.metrics.skippedExecutions ?? 0) + 1;
         return;
       }
 
-      if (this.next && this.next.getTime() <= Date.now() && this.status === "running") {
+      if (
+        this.next &&
+        this.next.getTime() <= Date.now() &&
+        this.status === "running"
+      ) {
         await this.executeJob();
         this.next = this.parser.getNext();
       }
@@ -251,14 +257,13 @@ class Cron<T extends string = string> implements ICron<T> {
     this.isExecuting = true;
 
     try {
-      await CBResolver(this.callback, this.onError);
-      this.onTick();
-      this.metrics.successfulExecutions++;
+      if (this.callback) {
+        await resolveIfPromise(this.callback());
+      }
+      await this.onTick();
     } catch (err) {
       success = false;
       error = err instanceof Error ? err.message : String(err);
-      this.metrics.failedExecutions++;
-      this.metrics.lastError = error;
 
       if (this.onError) {
         try {
@@ -266,14 +271,21 @@ class Cron<T extends string = string> implements ICron<T> {
         } catch (handlerError) {
           console.warn("Error handler failed:", handlerError);
         }
+      } else {
+        console.warn(`Cron job '${this.name}' failed:`, err);
       }
-    }
-    finally {
+      this.metrics.lastError = error;
+    } finally {
       this.isExecuting = false;
     }
 
     const duration = Date.now() - startTime;
     this.metrics.totalExecutions++;
+    if (success) {
+      this.metrics.successfulExecutions++;
+    } else {
+      this.metrics.failedExecutions++;
+    }
     this.metrics.lastExecutionTime = duration;
     this.metrics.averageExecutionTime =
       (this.metrics.averageExecutionTime * (this.metrics.totalExecutions - 1) +
@@ -291,6 +303,7 @@ class Cron<T extends string = string> implements ICron<T> {
     if (this.history.length > this.maxHistory) {
       this.history = this.history.slice(0, this.maxHistory);
     }
+    this.lastRunTime = historyEntry.timestamp;
   }
 
   stop(): void {
@@ -352,7 +365,9 @@ class Cron<T extends string = string> implements ICron<T> {
   }
 
   lastExecution(): Date {
-    return this.parser.getPrevious();
+    return this.lastRunTime
+      ? new Date(this.lastRunTime)
+      : this.parser.getPrevious();
   }
 
   nextExecution(): Date {
@@ -364,7 +379,7 @@ class Cron<T extends string = string> implements ICron<T> {
   }
 
   time(): number {
-    return Date.now();
+    return this.remaining();
   }
 
   getHistory(): ExecutionHistory[] {
@@ -385,7 +400,10 @@ class Cron<T extends string = string> implements ICron<T> {
     };
   }
 
-  hydratePersistence(state: { history?: ExecutionHistory[]; metrics?: JobMetrics }): void {
+  hydratePersistence(state: {
+    history?: ExecutionHistory[];
+    metrics?: JobMetrics;
+  }): void {
     if (state.history) {
       this.history = state.history.slice(0, this.maxHistory);
     }
@@ -403,7 +421,16 @@ class Cron<T extends string = string> implements ICron<T> {
     if (!match) return undefined;
     const value = parseInt(match[1], 10);
     const unit = match[2] ?? "ms";
-    const factor = unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60000 : unit === "h" ? 3600000 : 86400000;
+    const factor =
+      unit === "ms"
+        ? 1
+        : unit === "s"
+        ? 1000
+        : unit === "m"
+        ? 60000
+        : unit === "h"
+        ? 3600000
+        : 86400000;
     return value * factor;
   }
 
