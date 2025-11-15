@@ -1,5 +1,11 @@
 # cronbake
 
+## 0.3.2
+
+### Fixes
+
+- Persistence: Fix job redefinition warning by allowing user-defined jobs to replace restored jobs without conflicts ([#14](https://github.com/chaqchase/cronbake/issues/14)). Previously, restarting an app with updated job configurations would show a warning "Failed to restore job 'my-job': warn: Cron job with name 'my-job' already exists". Now, user-defined configurations take precedence over restored state.
+
 ## 0.3.1
 
 ### Patch Changes
