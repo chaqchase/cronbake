@@ -16,7 +16,7 @@ describe('Persistence Providers', () => {
     const baker2 = new Baker({
       persistence: { enabled: true, autoRestore: true, strategy: 'file', provider },
     });
-    await sleep(10);
+    await baker2.ready();
     expect(baker2.getJobNames()).toContain('file-job');
     // Stop timers and persist final state before cleanup
     baker2.stopAll();
@@ -37,7 +37,7 @@ describe('Persistence Providers', () => {
     const baker2 = new Baker({
       persistence: { enabled: true, autoRestore: true, strategy: 'redis', provider },
     });
-    await sleep(10);
+    await baker2.ready();
     expect(baker2.getJobNames()).toContain('redis-job');
     baker2.destroyAll();
     baker1.destroyAll();
@@ -60,7 +60,7 @@ describe('Persistence Providers', () => {
     const baker2 = new Baker({
       persistence: { enabled: true, autoRestore: true, strategy: 'file', provider },
     });
-    await sleep(10);
+    await baker2.ready();
     const restored = baker2.getAllJobs().get('restored-job');
     expect(restored?.cron).toBe('@daily');
 
@@ -90,6 +90,67 @@ describe('Persistence Providers', () => {
     await baker2.restoreState();
     const job = baker2.getAllJobs().get('predefined-job');
     expect(job?.cron).toBe('@hourly');
+
+    baker2.destroyAll();
+    await baker2.saveState();
+    cleanupFile(filePath);
+  });
+
+  it('respects per-job persistence flags', async () => {
+    const { provider, filePath } = createFileProvider();
+
+    const baker1 = new Baker({
+      persistence: { enabled: true, autoRestore: false, strategy: 'file', provider },
+    });
+
+    baker1.add({ name: 'persisted-job', cron: '@daily', callback: () => {}, persist: true });
+    baker1.add({ name: 'ephemeral-job', cron: '@hourly', callback: () => {}, persist: false });
+    await baker1.saveState();
+    baker1.destroyAll();
+
+    const baker2 = new Baker({
+      persistence: { enabled: true, autoRestore: true, strategy: 'file', provider },
+    });
+    await baker2.ready();
+    const jobNames = baker2.getJobNames();
+    expect(jobNames).toContain('persisted-job');
+    expect(jobNames).not.toContain('ephemeral-job');
+
+    baker2.destroyAll();
+    await baker2.saveState();
+    cleanupFile(filePath);
+  });
+
+  it('restores metrics and history snapshots', async () => {
+    const { provider, filePath } = createFileProvider();
+
+    const baker1 = new Baker({
+      enableMetrics: true,
+      persistence: { enabled: true, autoRestore: false, strategy: 'file', provider },
+    });
+
+    baker1.add({
+      name: 'metrics-job',
+      cron: '@every_second',
+      callback: () => {},
+      start: true,
+      immediate: true,
+      persist: true,
+    });
+
+    await sleep(120);
+    baker1.stopAll();
+    await baker1.saveState();
+    baker1.destroyAll();
+
+    const baker2 = new Baker({
+      enableMetrics: true,
+      persistence: { enabled: true, autoRestore: true, strategy: 'file', provider },
+    });
+    await baker2.ready();
+    const metricsJob = baker2.getAllJobs().get('metrics-job');
+    expect(metricsJob?.getMetrics().totalExecutions ?? 0).toBeGreaterThan(0);
+    expect(metricsJob?.getHistory().length ?? 0).toBeGreaterThan(0);
 
     baker2.destroyAll();
     await baker2.saveState();

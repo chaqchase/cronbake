@@ -171,3 +171,8 @@ dist
 node_modules
 dist
 .DS_Store
+
+# Example persistence state files
+examples/.cronbake-state.json
+examples/cronbake-state.json
+*.cronbake-state.json

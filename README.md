@@ -78,13 +78,11 @@ Track detailed execution history and performance metrics including:
 - Execution history with timestamps and durations
 - Error tracking and reporting
 
-#### Job Persistence
+#### Job Persistence (opt-in)
 
-Cronbake supports job persistence across application restarts:
-
-- Save job state to file system or Redis (pluggable providers)
-- Automatic restoration on startup
-- Configurable persistence options
+- Opt in by setting `persistence.enabled: true`
+- Use `await baker.ready()` before interacting when `autoRestore` restores jobs for you
+- Select file- or Redis-backed providers depending on your environment
 
 #### Callbacks and Error Handling
 
@@ -120,59 +118,106 @@ yarn add cronbake
 pnpm add cronbake
 ```
 
-### Usage
+### Quick Start (stateless defaults)
 
 To get started with Cronbake, create a new instance of the `Baker` class and add cron jobs using the `add` method:
 
 ```typescript
-import Baker from 'cronbake';
+import Baker from "cronbake";
 
 // Create a new Baker instance
 const baker = Baker.create();
 
 // Add a cron job that runs daily at midnight
 const dailyJob = baker.add({
-  name: 'daily-job',
-  cron: '0 0 0 * * *', // Runs daily at midnight
+  name: "daily-job",
+  cron: "0 0 0 * * *", // Runs daily at midnight
   callback: () => {
-    console.log('Daily job executed!');
+    console.log("Daily job executed!");
   },
 });
 
 // Runs every first 3 minutes for the first 3 hours of every day
 const everyFirst3MinutesJob = baker.add({
-  name: 'every-first-3-minutes-job',
-  cron: '0 0-3 1,2,3 * * *', // Runs every first 3 minutes for the first 3 hours of every day
+  name: "every-first-3-minutes-job",
+  cron: "0 0-3 1,2,3 * * *", // Runs every first 3 minutes for the first 3 hours of every day
   callback: () => {
-    console.log('Every first 3 minutes job executed!');
+    console.log("Every first 3 minutes job executed!");
   },
 });
 
 // using custom presets
 const everyMinuteJob = baker.add({
-  name: 'every-minute-job',
-  cron: '@every_minute',
+  name: "every-minute-job",
+  cron: "@every_minute",
   callback: () => {
-    console.log('Every minute job executed!');
+    console.log("Every minute job executed!");
   },
 });
 
 // Start all cron jobs
 baker.bakeAll();
+
+// Process exits? No problem—cron definitions live only in memory by default.
+// Enable persistence to keep jobs across restarts (see next section).
 ```
+
+### Persistence & Advanced Controls
+
+When you need your job definitions to survive application restarts, opt into persistence explicitly:
+
+```typescript
+import Baker from "cronbake";
+import { FilePersistenceProvider } from "cronbake";
+
+const baker = Baker.create({
+  persistence: {
+    enabled: true,
+    strategy: "file",
+    provider: new FilePersistenceProvider("./cronbake-state.json"),
+    autoRestore: true,
+  },
+});
+
+await baker.ready(); // wait for autoRestore before interacting with jobs
+
+baker.add({
+  name: "daily-job",
+  cron: "@daily",
+  persist: true, // default when persistence is enabled, but explicit for clarity
+  callback: () => console.log("runs daily"),
+});
+
+// Jobs with persist: false stay ephemeral even when persistence is on
+baker.add({
+  name: "one-off",
+  cron: "@hourly",
+  persist: false,
+  callback: () => console.log("won't be restored"),
+});
+```
+
+### Examples
+
+This repo includes runnable TypeScript scripts under `examples/`. They are excluded from the published package (only `dist/` ships), so you can use them freely as references:
+
+- `examples/basic.ts` – minimal stateless jobs with graceful shutdown
+- `examples/persistence.ts` – file-backed persistence plus `await baker.ready()` and mixed `persist` flags
+
+Run them with your favorite TS runner, e.g. `pnpm tsx examples/basic.ts`.
 
 #### Immediate/Delayed First Run and Overrun Protection
 
 ```typescript
-import Baker from 'cronbake';
+import Baker from "cronbake";
 
 const baker = Baker.create();
 
 baker.add({
-  name: 'fast-job',
-  cron: '@every_10_seconds',
-  immediate: true,      // run the first time right away
-  delay: '2s',          // but wait 2 seconds before that first run
+  name: "fast-job",
+  cron: "@every_10_seconds",
+  immediate: true, // run the first time right away
+  delay: "2s", // but wait 2 seconds before that first run
   overrunProtection: true, // skip overlaps if a previous run still executes
   callback: async () => {
     // Do work
@@ -187,7 +232,7 @@ baker.bakeAll();
 You can configure the Baker with advanced options:
 
 ```typescript
-import Baker from 'cronbake';
+import Baker from "cronbake";
 
 const baker = Baker.create({
   autoStart: false,
@@ -199,7 +244,7 @@ const baker = Baker.create({
   },
   persistence: {
     enabled: true,
-    filePath: './cronbake-state.json',
+    filePath: "./cronbake-state.json",
     autoRestore: true,
   },
   onError: (error, jobName) => {
@@ -214,25 +259,25 @@ Jobs can be configured with various options:
 
 ```typescript
 const job = baker.add({
-  name: 'advanced-job',
-  cron: '*/30 * * * * *',
+  name: "advanced-job",
+  cron: "*/30 * * * * *",
   callback: async () => {
     // Your async job logic here
     await processData();
   },
   onTick: () => {
-    console.log('Job started');
+    console.log("Job started");
   },
   onComplete: () => {
-    console.log('Job completed');
+    console.log("Job completed");
   },
   onError: (error) => {
-    console.error('Job failed:', error.message);
+    console.error("Job failed:", error.message);
   },
   priority: 5,
   maxHistory: 50,
   start: true,
-  persist: true,
+  persist: true, // default true when persistence enabled; set false for ephemeral
 });
 ```
 
@@ -242,10 +287,10 @@ You can manage cron jobs using the various methods provided by the `Baker` class
 
 ```typescript
 // Start, stop, pause, and resume jobs
-baker.bake('job-name');
-baker.stop('job-name');
-baker.pause('job-name');
-baker.resume('job-name');
+baker.bake("job-name");
+baker.stop("job-name");
+baker.pause("job-name");
+baker.resume("job-name");
 
 // Bulk operations
 baker.bakeAll();
@@ -254,14 +299,14 @@ baker.pauseAll();
 baker.resumeAll();
 
 // Get job information
-const status = baker.getStatus('job-name');
-const isRunning = baker.isRunning('job-name');
-const nextRun = baker.nextExecution('job-name');
-const remaining = baker.remaining('job-name');
+const status = baker.getStatus("job-name");
+const isRunning = baker.isRunning("job-name");
+const nextRun = baker.nextExecution("job-name");
+const remaining = baker.remaining("job-name");
 
 // Get metrics and history
-const metrics = baker.getMetrics('job-name');
-const history = baker.getHistory('job-name');
+const metrics = baker.getMetrics("job-name");
+const history = baker.getHistory("job-name");
 
 // Job management
 const jobNames = baker.getJobNames();
@@ -273,6 +318,8 @@ const allJobs = baker.getAllJobs();
 Save and restore job state:
 
 ```typescript
+await baker.ready(); // Wait for autoRestore to finish before inspecting jobs
+
 // Save current state
 await baker.saveState();
 
@@ -285,24 +332,31 @@ await baker.restoreState();
 Cronbake uses pluggable providers for persistence. A file provider is included by default. A Redis provider is available; you inject your Redis client.
 
 ```typescript
-import { Baker, FilePersistenceProvider, RedisPersistenceProvider } from 'cronbake';
+import {
+  Baker,
+  FilePersistenceProvider,
+  RedisPersistenceProvider,
+} from "cronbake";
 
 // File-based
 const bakerFile = Baker.create({
   persistence: {
     enabled: true,
-    strategy: 'file',
-    provider: new FilePersistenceProvider('./cronbake-state.json'),
+    strategy: "file",
+    provider: new FilePersistenceProvider("./cronbake-state.json"),
     autoRestore: true,
   },
 });
 
 // Redis-based (provide your own client implementing get/set)
-const redisProvider = new RedisPersistenceProvider({ client: redisClient, key: 'cronbake:state' });
+const redisProvider = new RedisPersistenceProvider({
+  client: redisClient,
+  key: "cronbake:state",
+});
 const bakerRedis = Baker.create({
   persistence: {
     enabled: true,
-    strategy: 'redis',
+    strategy: "redis",
     provider: redisProvider,
     autoRestore: true,
   },
@@ -311,57 +365,57 @@ const bakerRedis = Baker.create({
 
 ### Baker Methods
 
-| Method | Description |
-| --- | --- |
-| `add(options: CronOptions<T>)` | Adds a new cron job to the baker. |
-| `remove(name: string)` | Removes a cron job from the baker. |
-| `bake(name: string)` | Starts a cron job. |
-| `stop(name: string)` | Stops a cron job. |
-| `pause(name: string)` | Pauses a cron job. |
-| `resume(name: string)` | Resumes a paused cron job. |
-| `destroy(name: string)` | Destroys a cron job. |
-| `getStatus(name: string)` | Returns the status of a cron job. |
-| `isRunning(name: string)` | Checks if a cron job is running. |
-| `lastExecution(name: string)` | Returns the last execution time of a cron job. |
-| `nextExecution(name: string)` | Returns the next execution time of a cron job. |
-| `remaining(name: string)` | Returns the remaining time until the next execution of a cron job. |
-| `time(name: string)` | Returns the current time of a cron job. |
-| `getHistory(name: string)` | Returns the execution history of a cron job. |
-| `getMetrics(name: string)` | Returns the metrics of a cron job. |
-| `getJobNames()` | Returns all cron job names. |
-| `getAllJobs()` | Returns all cron jobs with their status. |
-| `bakeAll()` | Starts all cron jobs. |
-| `stopAll()` | Stops all cron jobs. |
-| `pauseAll()` | Pauses all cron jobs. |
-| `resumeAll()` | Resumes all cron jobs. |
-| `destroyAll()` | Destroys all cron jobs. |
-| `saveState()` | Saves the current state of all jobs to persistence storage. |
-| `restoreState()` | Restores jobs from persistence storage. |
-| `resetAllMetrics()` | Resets metrics for all jobs. |
-| `static create(options: IBakerOptions)` | Creates a new instance of `Baker`. |
+| Method                                  | Description                                                        |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| `add(options: CronOptions<T>)`          | Adds a new cron job to the baker.                                  |
+| `remove(name: string)`                  | Removes a cron job from the baker.                                 |
+| `bake(name: string)`                    | Starts a cron job.                                                 |
+| `stop(name: string)`                    | Stops a cron job.                                                  |
+| `pause(name: string)`                   | Pauses a cron job.                                                 |
+| `resume(name: string)`                  | Resumes a paused cron job.                                         |
+| `destroy(name: string)`                 | Destroys a cron job.                                               |
+| `getStatus(name: string)`               | Returns the status of a cron job.                                  |
+| `isRunning(name: string)`               | Checks if a cron job is running.                                   |
+| `lastExecution(name: string)`           | Returns the last execution time of a cron job.                     |
+| `nextExecution(name: string)`           | Returns the next execution time of a cron job.                     |
+| `remaining(name: string)`               | Returns the remaining time until the next execution of a cron job. |
+| `time(name: string)`                    | Returns the current time of a cron job.                            |
+| `getHistory(name: string)`              | Returns the execution history of a cron job.                       |
+| `getMetrics(name: string)`              | Returns the metrics of a cron job.                                 |
+| `getJobNames()`                         | Returns all cron job names.                                        |
+| `getAllJobs()`                          | Returns all cron jobs with their status.                           |
+| `bakeAll()`                             | Starts all cron jobs.                                              |
+| `stopAll()`                             | Stops all cron jobs.                                               |
+| `pauseAll()`                            | Pauses all cron jobs.                                              |
+| `resumeAll()`                           | Resumes all cron jobs.                                             |
+| `destroyAll()`                          | Destroys all cron jobs.                                            |
+| `saveState()`                           | Saves the current state of all jobs to persistence storage.        |
+| `restoreState()`                        | Restores jobs from persistence storage.                            |
+| `resetAllMetrics()`                     | Resets metrics for all jobs.                                       |
+| `static create(options: IBakerOptions)` | Creates a new instance of `Baker`.                                 |
 
 ### Advanced Usage
 
 Cronbake also provides a `Cron` class that you can use directly to create and manage individual cron jobs. This can be useful if you need more granular control over cron job instances.
 
 ```typescript
-import { Cron } from 'cronbake';
+import { Cron } from "cronbake";
 
 // Create a new Cron instance
 const job = Cron.create({
-  name: 'custom-job',
-  cron: '1-10/2 1,2,3 * * * *', // Runs every 2 seconds in the first 3 minutes of every hour
+  name: "custom-job",
+  cron: "1-10/2 1,2,3 * * * *", // Runs every 2 seconds in the first 3 minutes of every hour
   callback: () => {
-    console.log('Custom job executed!');
+    console.log("Custom job executed!");
   },
   onTick: () => {
-    console.log('Job ticked!');
+    console.log("Job ticked!");
   },
   onComplete: () => {
-    console.log('Job completed!');
+    console.log("Job completed!");
   },
   onError: (error) => {
-    console.error('Job failed:', error.message);
+    console.error("Job failed:", error.message);
   },
   priority: 10,
   immediate: false,
@@ -386,15 +440,13 @@ const history = job.getHistory();
 // Metrics include skippedExecutions when overrun protection skips overlaps
 ```
 
- 
-
 Cronbake also provides utility functions for parsing cron expressions, getting the next or previous execution times, and validating cron expressions.
 
 ```typescript
-import { Cron } from 'cronbake';
+import { Cron } from "cronbake";
 
 // Parse a cron expression
-const cronExpression = '0 0 0 * * *';
+const cronExpression = "0 0 0 * * *";
 const cronTime = Cron.parse(cronExpression);
 // Get the next execution time for a cron expression
 const nextExecution = Cron.getNext(cronExpression);
@@ -406,23 +458,23 @@ const isValid = Cron.isValid(cronExpression); // true
 
 ### Cron Methods
 
-| Method | Description |
-| --- | --- |
-| `start()` | Starts the cron job. |
-| `stop()` | Stops the cron job. |
-| `pause()` | Pauses the cron job. |
-| `resume()` | Resumes the cron job. |
-| `getStatus()` | Returns the current status of the cron job. |
-| `isRunning()` | Checks if the cron job is running. |
-| `nextExecution()` | Returns the date of the next execution of the cron job. |
-| `getHistory()` | Returns the execution history of the cron job. |
-| `getMetrics()` | Returns the metrics of the cron job. |
-| `resetMetrics()` | Resets the metrics and history of the cron job. |
-| `static create(options: CronOptions<T>)` | Creates a new cron job with the specified options. |
-| `static parse(cron: CronExpressionType<T>)` | Parses the specified cron expression and returns a `CronTime` object. |
-| `static getNext(cron: CronExpressionType<T>)` | Gets the next execution time for the specified cron expression. |
-| `static getPrevious(cron: CronExpressionType<T>)` | Gets the previous execution time for the specified cron expression. |
-| `static isValid(cron: CronExpressionType<T>)` | Checks if the specified string is a valid cron expression. |
+| Method                                            | Description                                                           |
+| ------------------------------------------------- | --------------------------------------------------------------------- |
+| `start()`                                         | Starts the cron job.                                                  |
+| `stop()`                                          | Stops the cron job.                                                   |
+| `pause()`                                         | Pauses the cron job.                                                  |
+| `resume()`                                        | Resumes the cron job.                                                 |
+| `getStatus()`                                     | Returns the current status of the cron job.                           |
+| `isRunning()`                                     | Checks if the cron job is running.                                    |
+| `nextExecution()`                                 | Returns the date of the next execution of the cron job.               |
+| `getHistory()`                                    | Returns the execution history of the cron job.                        |
+| `getMetrics()`                                    | Returns the metrics of the cron job.                                  |
+| `resetMetrics()`                                  | Resets the metrics and history of the cron job.                       |
+| `static create(options: CronOptions<T>)`          | Creates a new cron job with the specified options.                    |
+| `static parse(cron: CronExpressionType<T>)`       | Parses the specified cron expression and returns a `CronTime` object. |
+| `static getNext(cron: CronExpressionType<T>)`     | Gets the next execution time for the specified cron expression.       |
+| `static getPrevious(cron: CronExpressionType<T>)` | Gets the previous execution time for the specified cron expression.   |
+| `static isValid(cron: CronExpressionType<T>)`     | Checks if the specified string is a valid cron expression.            |
 
 ## Contributing
 

@@ -385,6 +385,15 @@ class Cron<T extends string = string> implements ICron<T> {
     };
   }
 
+  hydratePersistence(state: { history?: ExecutionHistory[]; metrics?: JobMetrics }): void {
+    if (state.history) {
+      this.history = state.history.slice(0, this.maxHistory);
+    }
+    if (state.metrics) {
+      this.metrics = { ...state.metrics };
+    }
+  }
+
   /** Parse a human-friendly delay string or number into milliseconds */
   private parseDelay(delay?: number | string): number | undefined {
     if (delay === undefined || delay === null) return undefined;

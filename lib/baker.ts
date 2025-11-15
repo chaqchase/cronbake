@@ -19,6 +19,9 @@ import type { PersistenceProvider } from "./persistence/types";
 class Baker implements IBaker {
   private crons: Map<string, ICron> = new Map();
   private restoredJobs: Set<string> = new Set();
+  private jobPersistence: Map<string, boolean> = new Map();
+  private isRestoring = false;
+  private initialRestorePromise: Promise<void> = Promise.resolve();
   private config: SchedulerConfig;
   private persistence: PersistenceOptions;
   private persistenceProvider?: PersistenceProvider;
@@ -60,13 +63,15 @@ class Baker implements IBaker {
     this.onError = options.onError;
 
     if (this.persistence.enabled && this.persistence.autoRestore) {
-      this.restoreState().catch((err) => {
+      const restorePromise = this.restoreState();
+      restorePromise.catch((err) => {
         console.warn("Failed to restore state:", err);
       });
+      this.initialRestorePromise = restorePromise;
     }
 
     if (options.autoStart) {
-      this.bakeAll();
+      this.initialRestorePromise.finally(() => this.bakeAll());
     }
   }
 
@@ -77,10 +82,12 @@ class Baker implements IBaker {
         existingCron.destroy();
         this.crons.delete(options.name);
         this.restoredJobs.delete(options.name);
+        this.jobPersistence.delete(options.name);
       } else {
         throw new Error(`Cron job with name '${options.name}' already exists`);
       }
     }
+    this.jobPersistence.delete(options.name);
 
     const cronConfig = {
       useCalculatedTimeouts: this.config.useCalculatedTimeouts,
@@ -100,9 +107,11 @@ class Baker implements IBaker {
     };
 
     const cron = Cron.create(enhancedOptions, cronConfig);
+    const shouldPersist = options.persist ?? true;
+    this.jobPersistence.set(cron.name, shouldPersist);
     this.crons.set(cron.name, cron);
 
-    if (this.persistence.enabled) {
+    if (this.persistence.enabled && !this.isRestoring) {
       this.saveState().catch((err) => {
         console.warn("Failed to save state:", err);
       });
@@ -117,6 +126,7 @@ class Baker implements IBaker {
       cron.destroy();
       this.crons.delete(name);
       this.restoredJobs.delete(name);
+      this.jobPersistence.delete(name);
 
       if (this.persistence.enabled) {
         this.saveState().catch((err) => {
@@ -160,6 +170,7 @@ class Baker implements IBaker {
       cron.destroy();
       this.crons.delete(name);
       this.restoredJobs.delete(name);
+      this.jobPersistence.delete(name);
 
       if (this.persistence.enabled) {
         this.saveState().catch((err) => {
@@ -244,6 +255,7 @@ class Baker implements IBaker {
     this.crons.forEach((cron) => cron.destroy());
     this.crons.clear();
     this.restoredJobs.clear();
+    this.jobPersistence.clear();
 
     if (this.persistence.enabled) {
       this.saveState().catch((err) => {
@@ -261,17 +273,26 @@ class Baker implements IBaker {
   async saveState(): Promise<void> {
     if (!this.persistence.enabled || !this.persistenceProvider) return;
     try {
-      const state = {
-        version: 1,
-        timestamp: new Date().toISOString(),
-        jobs: Array.from(this.crons.entries()).map(([name, cron]) => ({
+      const jobs = Array.from(this.crons.entries())
+        .filter(([name]) => this.jobPersistence.get(name) !== false)
+        .map(([name, cron]) => ({
           name,
           cron: String(cron.cron),
           status: cron.getStatus(),
           priority: cron.priority,
+          persist: this.jobPersistence.get(name) !== false,
           metrics: this.enableMetrics ? cron.getMetrics() : undefined,
-          history: this.enableMetrics ? cron.getHistory() : undefined,
-        })),
+          history: this.enableMetrics
+            ? cron.getHistory().map((entry) => ({
+                ...entry,
+                timestamp: entry.timestamp.toISOString(),
+              }))
+            : undefined,
+        }));
+      const state = {
+        version: 1,
+        timestamp: new Date().toISOString(),
+        jobs,
         config: this.config,
       } as const;
       await this.persistenceProvider.save(state);
@@ -282,15 +303,21 @@ class Baker implements IBaker {
 
   async restoreState(): Promise<void> {
     if (!this.persistence.enabled || !this.persistenceProvider) return;
+    if (this.isRestoring) return;
+    this.isRestoring = true;
     try {
       const state = await this.persistenceProvider.load();
       if (!state) return;
       if (!state.jobs || !Array.isArray(state.jobs)) {
         throw new Error("Invalid state format");
       }
+      let restoredCount = 0;
       for (const jobData of state.jobs) {
         if (!jobData.name || !jobData.cron) {
           console.warn("Skipping invalid job data:", jobData);
+          continue;
+        }
+        if (jobData.persist === false) {
           continue;
         }
         if (this.crons.has(jobData.name)) {
@@ -308,17 +335,42 @@ class Baker implements IBaker {
             },
             priority: jobData.priority,
             start: jobData.status === "running",
+            persist: true,
           };
           this.add(options);
+          const cron = this.crons.get(jobData.name);
+          if (
+            cron &&
+            typeof cron.hydratePersistence === "function" &&
+            this.enableMetrics
+          ) {
+            const history = jobData.history?.map((entry) => ({
+              ...entry,
+              timestamp: new Date(entry.timestamp),
+            }));
+            cron.hydratePersistence({
+              history,
+              metrics: jobData.metrics,
+            });
+          }
           this.restoredJobs.add(jobData.name);
+          restoredCount++;
         } catch (error) {
           console.warn(`Failed to restore job '${jobData.name}':`, error);
         }
       }
-      console.log(`Restored ${state.jobs.length} cron jobs from persistence`);
+      if (restoredCount > 0) {
+        console.log(`Restored ${restoredCount} cron jobs from persistence`);
+      }
     } catch (error) {
       throw new Error(`Failed to restore state: ${error}`);
+    } finally {
+      this.isRestoring = false;
     }
+  }
+
+  async ready(): Promise<void> {
+    await this.initialRestorePromise;
   }
 
   /**

@@ -6,6 +6,14 @@
 
 - Persistence: Fix job redefinition warning by allowing user-defined jobs to replace restored jobs without conflicts ([#14](https://github.com/chaqchase/cronbake/issues/14)). Previously, restarting an app with updated job configurations would show a warning "Failed to restore job 'my-job': warn: Cron job with name 'my-job' already exists". Now, user-defined configurations take precedence over restored state.
 
+### Minor Changes
+
+- Persistence: Honor the `persist` flag per job so only opted-in jobs are saved/restored, and hydrate metrics/history snapshots during restore.
+- API: Added `baker.ready()` to await automatic restoration before interacting with jobs; `autoStart` now waits for persistence to finish.
+- DX: Prevent redundant persistence writes during restore for faster startups and fewer warnings.
+- Metadata: Point npm metadata to `chaqchase/cronbake`.
+- Docs: Added `examples/` folder plus README guidance so common use cases have copy-paste starting points without bloating published bundles.
+
 ## 0.3.1
 
 ### Patch Changes

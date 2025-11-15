@@ -27,6 +27,7 @@ export {
   RedisPersistenceProvider,
   PersistedJob,
   PersistedState,
+  PersistedExecutionHistory,
   PersistenceProvider,
   RedisLikeClient,
   RedisProviderOptions,

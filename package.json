@@ -8,12 +8,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/triyanox/cronbake.git"
+    "url": "https://github.com/chaqchase/cronbake.git"
   },
   "bugs": {
-    "url": "https://github.com/triyanox/cronbake/issues"
+    "url": "https://github.com/chaqchase/cronbake/issues"
   },
-  "homepage": "https://github.com/triyanox/cronbake",
+  "homepage": "https://github.com/chaqchase/cronbake",
   "main": "dist/index.js",
   "author": {
     "name": "Mohamed Achaq",
