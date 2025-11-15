@@ -175,6 +175,13 @@ interface ICron<T extends string = string> {
    * Resets the metrics and history of the cron job.
    */
   resetMetrics: () => void;
+  /**
+   * Hydrates metrics/history from persisted state.
+   */
+  hydratePersistence?: (state: {
+    history?: ExecutionHistory[];
+    metrics?: JobMetrics;
+  }) => void;
 }
 
 /**
@@ -466,6 +473,10 @@ interface IBaker {
    * Resets metrics for all jobs.
    */
   resetAllMetrics: () => void;
+  /**
+   * Resolves when the initial persistence restoration completes.
+   */
+  ready: () => Promise<void>;
 }
 
 interface IBakerOptions {

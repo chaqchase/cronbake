@@ -1,4 +1,11 @@
-import { ExecutionHistory, JobMetrics, SchedulerConfig, Status } from "../types";
+import { JobMetrics, SchedulerConfig, Status } from "../types";
+
+type PersistedExecutionHistory = {
+  timestamp: string;
+  duration: number;
+  success: boolean;
+  error?: string;
+};
 
 type PersistedJob = {
   name: string;
@@ -6,7 +13,8 @@ type PersistedJob = {
   status: Status;
   priority: number;
   metrics?: JobMetrics;
-  history?: ExecutionHistory[];
+  history?: PersistedExecutionHistory[];
+  persist?: boolean;
 };
 
 type PersistedState = {
@@ -27,5 +35,11 @@ interface RedisLikeClient {
   set(key: string, value: string): Promise<unknown>;
 }
 
-export type { PersistedState, PersistedJob, PersistenceProvider, RedisLikeClient };
+export type {
+  PersistedState,
+  PersistedJob,
+  PersistedExecutionHistory,
+  PersistenceProvider,
+  RedisLikeClient,
+};
 

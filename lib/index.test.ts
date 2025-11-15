@@ -304,6 +304,33 @@ describe("Baker", () => {
     expect(cron.onError).toBeDefined();
   });
 
+  it("should record failed executions when callbacks throw", async () => {
+    const onError = jest.fn();
+    baker.add({
+      name: "failing-job",
+      cron: "* * * * * *",
+      callback: () => {
+        throw new Error("boom");
+      },
+      start: true,
+      immediate: true,
+      onError,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    baker.stop("failing-job");
+
+    const metrics = baker.getMetrics("failing-job");
+    expect(metrics.totalExecutions).toBe(1);
+    expect(metrics.failedExecutions).toBe(1);
+    expect(metrics.successfulExecutions).toBe(0);
+    expect(metrics.lastError).toBe("boom");
+
+    const history = baker.getHistory("failing-job");
+    expect(history[0]?.success).toBe(false);
+    expect(onError).toHaveBeenCalled();
+  });
+
   it("should reset metrics", () => {
     const cron = baker.add({
       name: "test",
@@ -360,10 +387,9 @@ describe("Baker", () => {
     });
 
     expect(cron).toBeDefined();
-    
+
     persistenceBaker.destroyAll();
   });
-
 
   it("should prevent overrun when enabled (interval mode)", async () => {
     const configuredBaker = new Baker({
@@ -457,6 +483,20 @@ describe("Baker", () => {
     expect(cb).not.toHaveBeenCalled();
     await new Promise((r) => setTimeout(r, 60));
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("should update lastExecution after a job runs", async () => {
+    baker.add({
+      name: "last-run",
+      cron: "0 0 0 1 1 *",
+      callback: jest.fn(),
+      start: true,
+      immediate: true,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const last = baker.lastExecution("last-run");
+    expect(Math.abs(last.getTime() - Date.now())).toBeLessThan(1000);
   });
 });
 
@@ -657,8 +697,11 @@ describe("Cron", () => {
   });
 
   it("should get the time until the next execution of the cron job", () => {
+    cron.start();
+    const remaining = cron.remaining();
     const time = cron.time();
-    expect(typeof time).toBe("number");
+    expect(Math.abs(time - remaining)).toBeLessThanOrEqual(10);
+    cron.stop();
   });
 
   it("should get execution history", () => {
