@@ -335,7 +335,7 @@ You can provide a custom logger that implements the `Logger` interface to log me
 import { getLogger } from '@logtape/logtape';
 import { Baker, FilePersistenceProvider } from 'cronbake';
 
-const logger = getLogger(['mirar', 'cron'])
+const logger = getLogger(['mirar', 'cron']);
 
 export const baker = Baker.create({
   logger
