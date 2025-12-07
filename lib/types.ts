@@ -8,6 +8,16 @@ type CronTime = {
 };
 
 /**
+ * Interface for a logger that implements standard logging methods.
+ */
+export interface Logger {
+  info(message: any, ...args: any[]): void;
+  error(message: any, ...args: any[]): void;
+  warn(message: any, ...args: any[]): void;
+  debug(message: any, ...args: any[]): void;
+}
+
+/**
  * Interface for a cron parser that can parse a cron expression and provide
  * the next and previous execution times.
  */
@@ -273,6 +283,10 @@ type CronOptions<T extends string = string> = {
    */
   immediate?: boolean;
   /**
+   * Custom logger instance
+   */
+  logger?: Logger;
+  /**
    * If set with `immediate: true`, delay the first run by this amount.
    * Accepts number (ms) or strings like '500ms', '10s', '2m', '1h'.
    */
@@ -485,6 +499,7 @@ interface IBakerOptions {
   persistence?: PersistenceOptions;
   enableMetrics?: boolean;
   onError?: (error: Error, jobName: string) => void;
+  logger?: Logger;
 }
 
 export {
