@@ -1,5 +1,24 @@
 # cronbake
 
+## 0.4.0
+
+### Features
+
+- **Custom Logger Support**: Add pluggable logger interface allowing integration with any logging library (pino, winston, bunyan, logtape, etc.)
+  - New `Logger` interface exported from package API
+  - Pass `logger` option to `Baker.create()` to set a global logger for all jobs
+  - Override logger per job via `logger` option in `baker.add()` or `Cron.create()`
+  - Default behavior unchanged (falls back to `console`)
+  - Thanks to [@nemvince](https://github.com/nemvince) for the work in [PR #17](https://github.com/chaqchase/cronbake/pull/17)
+
+### Examples
+
+- Added `examples/logging.ts` demonstrating custom logger usage with colored output, global logger, per-job overrides, and error logging
+
+### Documentation
+
+- Updated README with comprehensive custom logger documentation and examples
+
 ## 0.3.2
 
 ### Fixes
