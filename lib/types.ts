@@ -42,21 +42,21 @@ interface ICronParser {
 }
 
 type unit =
-  | 'seconds'
-  | 'minutes'
-  | 'hours'
-  | 'dayOfMonth'
-  | 'months'
-  | 'dayOfWeek';
+  | "seconds"
+  | "minutes"
+  | "hours"
+  | "dayOfMonth"
+  | "months"
+  | "dayOfWeek";
 
 type day =
-  | 'sunday'
-  | 'monday'
-  | 'tuesday'
-  | 'wednesday'
-  | 'thursday'
-  | 'friday'
-  | 'saturday';
+  | "sunday"
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday";
 
 type EveryStrType<U extends unit = unit> = `@every_${string}_${U}`;
 type AtHourStrType = `@at_${number}:${number}`;
@@ -64,14 +64,14 @@ type OnDayStrType<D extends day = day> = `@on_${D}`;
 type BetweenStrType = `@between_${number}_${number}`;
 
 type CronExprs =
-  | '@every_second'
-  | '@every_minute'
-  | '@yearly'
-  | '@annually'
-  | '@monthly'
-  | '@weekly'
-  | '@daily'
-  | '@hourly'
+  | "@every_second"
+  | "@every_minute"
+  | "@yearly"
+  | "@annually"
+  | "@monthly"
+  | "@weekly"
+  | "@daily"
+  | "@hourly"
   | EveryStrType
   | AtHourStrType
   | OnDayStrType
@@ -278,9 +278,6 @@ type CronOptions<T extends string = string> = {
   /**
    * If true, run the first callback immediately on start (before schedule)
    */
-  /**
-   * If true, run the first callback immediately on start (before schedule)
-   */
   immediate?: boolean;
   /**
    * Custom logger instance
@@ -293,7 +290,7 @@ type CronOptions<T extends string = string> = {
   delay?: number | string;
 };
 
-type Status = 'running' | 'stopped' | 'paused' | 'error';
+type Status = "running" | "stopped" | "paused" | "error";
 
 /**
  * Execution history entry for a cron job
@@ -323,7 +320,7 @@ type JobMetrics = {
  */
 import type { PersistenceProvider } from "./persistence/types";
 
-type PersistenceStrategy = 'file' | 'redis' | 'custom';
+type PersistenceStrategy = "file" | "redis" | "custom";
 
 type RedisPersistenceOptions = {
   key?: string;
