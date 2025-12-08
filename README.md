@@ -332,13 +332,40 @@ await baker.restoreState();
 You can provide a custom logger that implements the `Logger` interface to log messages from Cronbake:
 
 ```typescript
-import { getLogger } from '@logtape/logtape';
-import { Baker, FilePersistenceProvider } from 'cronbake';
+import { Baker, Logger } from 'cronbake';
 
-const logger = getLogger(['mirar', 'cron']);
+// Using a logging library like logtape
+import { getLogger } from '@logtape/logtape';
+
+const logger = getLogger(['myapp', 'cron']);
 
 export const baker = Baker.create({
   logger
+});
+
+// Or create a custom logger
+const customLogger: Logger = {
+  info: (msg, ...args) => console.log(`[INFO] ${msg}`, ...args),
+  warn: (msg, ...args) => console.warn(`[WARN] ${msg}`, ...args),
+  error: (msg, ...args) => console.error(`[ERROR] ${msg}`, ...args),
+  debug: (msg, ...args) => console.debug(`[DEBUG] ${msg}`, ...args),
+};
+
+export const bakerWithCustomLogger = Baker.create({
+  logger: customLogger
+});
+```
+
+You can also override the logger per job:
+
+```typescript
+const baker = Baker.create({ logger: defaultLogger });
+
+baker.add({
+  name: 'special-job',
+  cron: '@daily',
+  logger: specialLogger, // This job uses a different logger
+  callback: () => console.log('Hello!'),
 });
 ```
 
