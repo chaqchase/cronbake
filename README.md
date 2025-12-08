@@ -327,6 +327,21 @@ await baker.saveState();
 await baker.restoreState();
 ```
 
+#### Using a Custom Logger
+
+You can provide a custom logger that implements the `Logger` interface to log messages from Cronbake:
+
+```typescript
+import { getLogger } from '@logtape/logtape';
+import { Baker, FilePersistenceProvider } from 'cronbake';
+
+const logger = getLogger(['mirar', 'cron']);
+
+export const baker = Baker.create({
+  logger
+});
+```
+
 #### Persistence Providers (File and Redis)
 
 Cronbake uses pluggable providers for persistence. A file provider is included by default. A Redis provider is available; you inject your Redis client.

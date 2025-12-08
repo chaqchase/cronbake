@@ -7,6 +7,7 @@ import {
   type Status,
   type ExecutionHistory,
   type JobMetrics,
+  type Logger,
 } from "./types";
 import CronParser from "./parser";
 import { CBResolver, resolveIfPromise } from "./utils";
@@ -42,6 +43,7 @@ class Cron<T extends string = string> implements ICron<T> {
   private immediate: boolean;
   private initialDelayMs?: number;
   private lastRunTime: Date | null = null;
+  private logger: Logger;
 
   /**
    * Creates a new instance of the `Cron` class.
@@ -54,11 +56,12 @@ class Cron<T extends string = string> implements ICron<T> {
       throw new Error("Cron job name is required and must be a string");
     }
 
+    this.logger = options.logger ?? console;
     this.name = options.name;
     this.cron = options.cron;
     this.callback = options.callback;
-    this.onTick = CBResolver.bind(this, options.onTick);
-    this.onComplete = CBResolver.bind(this, options.onComplete);
+    this.onTick = CBResolver.bind(this, options.onTick, undefined, this.logger);
+    this.onComplete = CBResolver.bind(this, options.onComplete, undefined, this.logger);
     this.onError = options.onError;
     this.priority = options.priority ?? 0;
     this.maxHistory = options.maxHistory ?? 100;
@@ -269,10 +272,10 @@ class Cron<T extends string = string> implements ICron<T> {
         try {
           this.onError(err instanceof Error ? err : new Error(String(err)));
         } catch (handlerError) {
-          console.warn("Error handler failed:", handlerError);
+          this.logger.warn("Error handler failed:", handlerError);
         }
       } else {
-        console.warn(`Cron job '${this.name}' failed:`, err);
+        this.logger.warn(`Cron job '${this.name}' failed:`, err);
       }
       this.metrics.lastError = error;
     } finally {

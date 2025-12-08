@@ -9,6 +9,7 @@ import {
   JobMetrics,
   SchedulerConfig,
   PersistenceOptions,
+  Logger,
 } from "./types";
 import { FilePersistenceProvider } from "./persistence/file";
 import type { PersistenceProvider } from "./persistence/types";
@@ -27,8 +28,10 @@ class Baker implements IBaker {
   private persistenceProvider?: PersistenceProvider;
   private enableMetrics: boolean;
   private onError?: (error: Error, jobName: string) => void;
+  private logger: Logger;
 
   constructor(options: IBakerOptions = {}) {
+    this.logger = options.logger ?? console;
     this.config = {
       pollingInterval: options.schedulerConfig?.pollingInterval ?? 1000,
       useCalculatedTimeouts:
@@ -65,7 +68,7 @@ class Baker implements IBaker {
     if (this.persistence.enabled && this.persistence.autoRestore) {
       const restorePromise = this.restoreState();
       restorePromise.catch((err) => {
-        console.warn("Failed to restore state:", err);
+        this.logger.warn("Failed to restore state:", err);
       });
       this.initialRestorePromise = restorePromise;
     }
@@ -94,14 +97,19 @@ class Baker implements IBaker {
       pollingInterval: this.config.pollingInterval,
     };
 
+    const jobLogger = options.logger ?? this.logger;
+
     const enhancedOptions: CronOptions<T> = {
       ...options,
       maxHistory: options.maxHistory ?? this.config.maxHistoryEntries,
+      logger: jobLogger,
       onError:
         options.onError ??
         ((error: Error) => {
           if (this.onError) {
             this.onError(error, options.name);
+          } else {
+            jobLogger.warn(`Cron job '${options.name}' failed:`, error);
           }
         }),
     };
@@ -113,7 +121,7 @@ class Baker implements IBaker {
 
     if (this.persistence.enabled && !this.isRestoring) {
       this.saveState().catch((err) => {
-        console.warn("Failed to save state:", err);
+        this.logger.warn("Failed to save state:", err);
       });
     }
 
@@ -130,7 +138,7 @@ class Baker implements IBaker {
 
       if (this.persistence.enabled) {
         this.saveState().catch((err) => {
-          console.warn("Failed to save state:", err);
+          this.logger.warn("Failed to save state:", err);
         });
       }
     }
@@ -174,7 +182,7 @@ class Baker implements IBaker {
 
       if (this.persistence.enabled) {
         this.saveState().catch((err) => {
-          console.warn("Failed to save state:", err);
+          this.logger.warn("Failed to save state:", err);
         });
       }
     }
@@ -259,7 +267,7 @@ class Baker implements IBaker {
 
     if (this.persistence.enabled) {
       this.saveState().catch((err) => {
-        console.warn("Failed to save state:", err);
+        this.logger.warn("Failed to save state:", err);
       });
     }
   }
@@ -314,7 +322,7 @@ class Baker implements IBaker {
       let restoredCount = 0;
       for (const jobData of state.jobs) {
         if (!jobData.name || !jobData.cron) {
-          console.warn("Skipping invalid job data:", jobData);
+          this.logger.warn("Skipping invalid job data:", jobData);
           continue;
         }
         if (jobData.persist === false) {
@@ -329,7 +337,7 @@ class Baker implements IBaker {
             name: jobData.name,
             cron: jobData.cron,
             callback: () => {
-              console.warn(
+              this.logger.warn(
                 `Restored job '${jobData.name}' executed but no callback was provided`
               );
             },
@@ -356,11 +364,11 @@ class Baker implements IBaker {
           this.restoredJobs.add(jobData.name);
           restoredCount++;
         } catch (error) {
-          console.warn(`Failed to restore job '${jobData.name}':`, error);
+          this.logger.warn(`Failed to restore job '${jobData.name}':`, error);
         }
       }
       if (restoredCount > 0) {
-        console.log(`Restored ${restoredCount} cron jobs from persistence`);
+        this.logger.info(`Restored ${restoredCount} cron jobs from persistence`);
       }
     } catch (error) {
       throw new Error(`Failed to restore state: ${error}`);

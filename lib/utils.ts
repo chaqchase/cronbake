@@ -1,3 +1,5 @@
+import { Logger } from "./types";
+
 const resolveIfPromise = async (value: any) =>
   value instanceof Promise ? await value : value;
 
@@ -5,10 +7,12 @@ const resolveIfPromise = async (value: any) =>
  * Resolves a callback function, handling both sync and async functions
  * @param callback - The callback function to execute
  * @param onError - Optional error handler
+ * @param logger - Optional logger
  */
 const CBResolver = async (
   callback?: () => void | Promise<void>,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  logger: Logger = console
 ) => {
   try {
     if (callback) {
@@ -18,7 +22,7 @@ const CBResolver = async (
     if (onError) {
       onError(error as Error);
     } else {
-      console.warn('Callback execution failed:', error);
+      logger.warn('Callback execution failed:', error);
     }
   }
 };
