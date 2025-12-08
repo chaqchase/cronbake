@@ -26,4 +26,17 @@ bun run examples/persistence.ts
 
 The script writes state to `./.cronbake-state.json`, demonstrating `persist: true` vs. `persist: false` jobs and `await baker.ready()`.
 
+## Run the logging example
+
+```bash
+bun run examples/logging.ts
+```
+
+This demonstrates custom logger support:
+
+- Creating a custom logger with colored output
+- Using a global logger for all jobs via Baker
+- Overriding the logger per job
+- Error logging when jobs fail
+
 Feel free to copy these files or adapt them into your own app bootstrap logic.

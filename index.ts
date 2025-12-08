@@ -17,6 +17,7 @@ export {
   type OnDayStrType,
   type day,
   type unit,
+  type Logger,
 } from "./lib";
 
 export { Cron, Baker, CronParser } from "./lib";

@@ -21,6 +21,7 @@ export {
   type OnDayStrType,
   type day,
   type unit,
+  type Logger,
 } from "./types";
 
 export { Cron, Baker, CronParser, FilePersistenceProvider, RedisPersistenceProvider };
