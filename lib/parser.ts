@@ -62,7 +62,7 @@ class CronParser<T extends string> implements ICronParser {
         // Run at midnight on every Nth day-of-week (e.g., */2 => Sun, Tue, Thu, Sat)
         return `0 0 0 * * */${value}`;
       default:
-        return "* * * * * *";
+        throw new Error(`Unknown cron interval unit: ${unit}`);
     }
   }
 
@@ -110,16 +110,16 @@ class CronParser<T extends string> implements ICronParser {
         ("" as CronExpressionType<T>)
       );
     }
-    if (str.includes("@every_")) {
+    if (/^@every_\d+_(seconds|minutes|hours|dayOfMonth|months|dayOfWeek)$/.test(str)) {
       return this.parseEveryStr(str as EveryStrType) as CronExpressionType<T>;
     }
-    if (str.includes("@at_")) {
+    if (/^@at_\d+:\d+$/.test(str)) {
       return this.parseAtHourStr(str as AtHourStrType) as CronExpressionType<T>;
     }
-    if (str.includes("@on_")) {
+    if (/^@on_(sunday|monday|tuesday|wednesday|thursday|friday|saturday)$/.test(str)) {
       return this.parseOnDayStr(str as OnDayStrType) as CronExpressionType<T>;
     }
-    if (str.includes("@between_")) {
+    if (/^@between_\d+_\d+$/.test(str)) {
       return this.parseBetweenStr(
         str as BetweenStrType,
       ) as CronExpressionType<T>;
@@ -132,9 +132,9 @@ class CronParser<T extends string> implements ICronParser {
    * @returns A `CronTime` object representing the parsed cron expression.
    */
   parse(): CronTime {
-    this.cron = this.parseStr(this.cron);
-    const [second, minute, hour, dayOfMonth, month, dayOfWeek] =
-      this.cron.split(" ");
+    const fields = this.parseStr(this.cron.trim()).split(/\s+/);
+    if (fields.length !== 6) throw new Error("Cron expressions require six fields");
+    const [second, minute, hour, dayOfMonth, month, dayOfWeek] = fields;
     return {
       second: this.parseCronTime(second, 0, 59),
       minute: this.parseCronTime(minute, 0, 59),
@@ -149,100 +149,61 @@ class CronParser<T extends string> implements ICronParser {
    * Gets the next execution time based on the current time.
    * @returns A `Date` object representing the next execution time.
    */
-  getNext(): Date {
-    const cronTime = this.parse();
-    const now = new Date();
-    let next = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      now.getMinutes(),
-      now.getSeconds(),
-    );
-    next.setMilliseconds(0);
-    next.setSeconds(next.getSeconds() + 1);
-
-    while (!this.checkCronTime(cronTime, next)) {
-      next.setSeconds(next.getSeconds() + 1);
-    }
-
-    return next;
+  getNext(from: Date = new Date()): Date {
+    return this.findExecution(from, 1);
   }
 
-  /**
-   * Gets the previous execution time based on the current time.
-   * @returns A `Date` object representing the previous execution time.
-   */
-  getPrevious(): Date {
-    const cronTime = this.parse();
-    const now = new Date();
-    let previous = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      now.getMinutes(),
-      now.getSeconds(),
-    );
-    previous.setMilliseconds(0);
-    previous.setSeconds(previous.getSeconds() - 1);
+  getPrevious(from: Date = new Date()): Date {
+    return this.findExecution(from, -1);
+  }
 
-    while (!this.checkCronTime(cronTime, previous)) {
-      previous.setSeconds(previous.getSeconds() - 1);
+  private findExecution(from: Date, direction: 1 | -1): Date {
+    if (!Number.isFinite(from.getTime())) throw new Error("Invalid reference date");
+    const fields = this.parse();
+    const date = new Date(Math.floor(from.getTime() / 1000) * 1000);
+    date.setTime(date.getTime() + direction * 1000);
+    const limit = from.getFullYear() + direction * 400;
+    while (direction > 0 ? date.getFullYear() <= limit : date.getFullYear() >= limit) {
+      if (!fields.month!.includes(date.getMonth() + 1) ||
+          !fields.dayOfMonth!.includes(date.getDate()) ||
+          !fields.dayOfWeek!.includes(date.getDay())) {
+        date.setDate(date.getDate() + direction);
+        date.setHours(direction > 0 ? 0 : 23, direction > 0 ? 0 : 59, direction > 0 ? 0 : 59, 0);
+        continue;
+      }
+      if (this.checkCronTime(fields, date)) return date;
+      date.setTime(date.getTime() + direction * 1000);
     }
-
-    return previous;
+    throw new Error("Cron expression has no execution within 400 years");
   }
 
   /**
    * Parses a cron time string and returns an array of numbers representing the valid values for that field.
    */
   private parseCronTime(cronTime: string, min: number, max: number): number[] {
-    const result: number[] = [];
-    switch (true) {
-      case cronTime === "*":
-        for (let i = min; i <= max; i++) {
-          result.push(i);
-        }
-        break;
-      case cronTime.includes("-"): {
-        const [start, end] = cronTime.split("-");
-        const step = this.getStep(cronTime);
-        for (let i = parseInt(start); i <= parseInt(end); i += step) {
-          result.push(i);
-        }
-        break;
+    const result = new Set<number>();
+    for (const part of cronTime.split(",")) {
+      const match = /^(\*|\d+(?:-\d+)?)(?:\/(\d+))?$/.exec(part);
+      if (!match) throw new Error(`Invalid cron field: ${cronTime}`);
+      const [, base, stepText] = match;
+      const step = stepText === undefined ? 1 : Number(stepText);
+      if (!Number.isSafeInteger(step) || step <= 0) {
+        throw new Error(`Invalid cron step: ${part}`);
       }
-      case cronTime.includes("/"): {
-        const [value, step] = cronTime.split("/");
-        const start = value === "*" ? min : parseInt(value);
-        for (let i = start; i <= max; i += parseInt(step)) {
-          result.push(i);
-        }
-        break;
+      let start = min;
+      let end = max;
+      if (base !== "*") {
+        const bounds = base.split("-").map(Number);
+        start = bounds[0];
+        end = bounds.length === 2 ? bounds[1] : stepText === undefined ? start : max;
       }
-      case cronTime.includes(","): {
-        const times = cronTime.split(",");
-        for (let i = 0; i < times.length; i++) {
-          result.push(parseInt(times[i]));
-        }
-        break;
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+          start < min || end > max || start > end) {
+        throw new Error(`Cron field out of range: ${part}`);
       }
-      default:
-        result.push(parseInt(cronTime));
-        break;
+      for (let value = start; value <= end; value += step) result.add(value);
     }
-    return result;
-  }
-
-  /**
-   * Gets the step value for a cron time string.
-   */
-  private getStep(cronTime: string): number {
-    const [, step] = cronTime.split("/");
-    const parsedStep = parseInt(step);
-    return isNaN(parsedStep) ? 1 : parsedStep;
+    return [...result].sort((a, b) => a - b);
   }
 
   /**

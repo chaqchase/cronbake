@@ -39,7 +39,8 @@ class Cron<T extends string = string> implements ICron<T> {
   private useCalculatedTimeouts: boolean;
   private pollingInterval: number;
   private overrunProtection: boolean;
-  private isExecuting: boolean = false;
+  private activeExecutions = 0;
+  private generation = 0;
   private immediate: boolean;
   private initialDelayMs?: number;
   private lastRunTime: Date | null = null;
@@ -70,6 +71,10 @@ class Cron<T extends string = string> implements ICron<T> {
     this.overrunProtection = options.overrunProtection ?? true;
     this.immediate = options.immediate ?? false;
     this.initialDelayMs = this.parseDelay(options.delay);
+    if (typeof this.callback !== "function") throw new Error("Callback must be a function");
+    if (!Number.isInteger(this.maxHistory) || this.maxHistory < 0) throw new Error("Invalid history limit");
+    if (!Number.isFinite(this.pollingInterval) || this.pollingInterval <= 0 || this.pollingInterval > 2147483647) throw new Error("Invalid polling interval");
+    if (!Number.isFinite(this.priority)) throw new Error("Invalid priority");
 
     this.start = this.start.bind(this);
     this.stop = this.stop.bind(this);
@@ -145,6 +150,7 @@ class Cron<T extends string = string> implements ICron<T> {
     if (this.status === "running") {
       return;
     }
+    this.next = this.immediate ? new Date(Date.now() + (this.initialDelayMs ?? 0)) : this.parser.getNext();
     this.status = "running";
 
     if (this.immediate) {
@@ -183,69 +189,38 @@ class Cron<T extends string = string> implements ICron<T> {
       return;
     }
 
-    this.timeout = setTimeout(async () => {
-      if (this.status === "running") {
-        await this.executeJob();
-        this.next = this.parser.getNext();
-        this.scheduleWithTimeout();
-      }
+    const generation = this.generation;
+    this.timeout = setTimeout(() => {
+      if (this.status !== "running" || generation !== this.generation) return;
+      this.next = this.parser.getNext();
+      this.scheduleWithTimeout();
+      void this.executeJob();
     }, delay);
   }
 
-  /**
-   * Schedule a one-off immediate or delayed first run, then fall back to normal scheduling
-   */
   private scheduleImmediateFirstRun(): void {
-    if (this.status !== "running") return;
-    const targetDelay = Math.max(0, this.initialDelayMs ?? 0);
-    const MAX_TIMEOUT_VALUE = 2147483647; // ~24.8 days
-
-    if (targetDelay > MAX_TIMEOUT_VALUE) {
-      const targetTime = Date.now() + targetDelay;
-      this.interval = setInterval(async () => {
-        if (this.status !== "running") return;
-        if (Date.now() >= targetTime) {
-          if (this.interval) {
-            clearInterval(this.interval);
-            this.interval = null;
-          }
-          await this.executeJob();
-          this.next = this.parser.getNext();
-          if (this.useCalculatedTimeouts) this.scheduleWithTimeout();
-          else this.scheduleWithInterval();
-        }
-      }, Math.min(this.pollingInterval, 1000));
-      return;
-    }
-
-    this.timeout = setTimeout(async () => {
-      if (this.status !== "running") return;
-      await this.executeJob();
-      this.next = this.parser.getNext();
-      if (this.useCalculatedTimeouts) this.scheduleWithTimeout();
-      else this.scheduleWithInterval();
-    }, targetDelay);
+    const generation = this.generation;
+    const target = this.next!.getTime();
+    const schedule = () => {
+      this.timeout = setTimeout(() => {
+        if (this.status !== "running" || generation !== this.generation) return;
+        if (Date.now() < target) { schedule(); return; }
+        this.next = this.parser.getNext();
+        if (this.useCalculatedTimeouts) this.scheduleWithTimeout();
+        else this.scheduleWithInterval();
+        void this.executeJob();
+      }, Math.min(Math.max(0, target - Date.now()), 2147483647));
+    };
+    schedule();
   }
 
-  /**
-   * Schedules execution using traditional polling interval
-   */
   private scheduleWithInterval(): void {
-    this.interval = setInterval(async () => {
-      if (this.overrunProtection && this.isExecuting) {
-        // Overrun protection: skip overlapping start
-        this.metrics.skippedExecutions =
-          (this.metrics.skippedExecutions ?? 0) + 1;
-        return;
-      }
-
-      if (
-        this.next &&
-        this.next.getTime() <= Date.now() &&
-        this.status === "running"
-      ) {
-        await this.executeJob();
+    const generation = this.generation;
+    this.interval = setInterval(() => {
+      if (this.status !== "running" || generation !== this.generation) return;
+      if (this.next && this.next.getTime() <= Date.now()) {
         this.next = this.parser.getNext();
+        void this.executeJob();
       }
     }, this.pollingInterval);
   }
@@ -254,10 +229,14 @@ class Cron<T extends string = string> implements ICron<T> {
    * Executes the job and handles metrics/history tracking
    */
   private async executeJob(): Promise<void> {
+    if (this.overrunProtection && this.activeExecutions > 0) {
+      this.metrics.skippedExecutions = (this.metrics.skippedExecutions ?? 0) + 1;
+      return;
+    }
     const startTime = Date.now();
     let success = true;
     let error: string | undefined;
-    this.isExecuting = true;
+    this.activeExecutions++;
 
     try {
       if (this.callback) {
@@ -270,7 +249,7 @@ class Cron<T extends string = string> implements ICron<T> {
 
       if (this.onError) {
         try {
-          this.onError(err instanceof Error ? err : new Error(String(err)));
+          await this.onError(err instanceof Error ? err : new Error(String(err)));
         } catch (handlerError) {
           this.logger.warn("Error handler failed:", handlerError);
         }
@@ -279,7 +258,7 @@ class Cron<T extends string = string> implements ICron<T> {
       }
       this.metrics.lastError = error;
     } finally {
-      this.isExecuting = false;
+      this.activeExecutions--;
     }
 
     const duration = Date.now() - startTime;
@@ -343,6 +322,8 @@ class Cron<T extends string = string> implements ICron<T> {
    * Clears all active schedulers
    */
   private clearSchedulers(): void {
+    this.generation++;
+    this.next = null;
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
@@ -374,7 +355,7 @@ class Cron<T extends string = string> implements ICron<T> {
   }
 
   nextExecution(): Date {
-    return this.next || new Date();
+    return this.next ? new Date(this.next) : new Date();
   }
 
   remaining(): number {
@@ -386,7 +367,7 @@ class Cron<T extends string = string> implements ICron<T> {
   }
 
   getHistory(): ExecutionHistory[] {
-    return [...this.history];
+    return this.history.map(entry => ({ ...entry, timestamp: new Date(entry.timestamp) }));
   }
 
   getMetrics(): JobMetrics {
@@ -418,10 +399,13 @@ class Cron<T extends string = string> implements ICron<T> {
   /** Parse a human-friendly delay string or number into milliseconds */
   private parseDelay(delay?: number | string): number | undefined {
     if (delay === undefined || delay === null) return undefined;
-    if (typeof delay === "number") return delay >= 0 ? delay : 0;
+    if (typeof delay === "number") {
+      if (!Number.isFinite(delay) || delay < 0) throw new Error("Invalid delay");
+      return delay;
+    }
     const str = String(delay).trim().toLowerCase();
     const match = str.match(/^(\d+)\s*(ms|s|m|h|d)?$/);
-    if (!match) return undefined;
+    if (!match) throw new Error("Invalid delay");
     const value = parseInt(match[1], 10);
     const unit = match[2] ?? "ms";
     const factor =
@@ -434,6 +418,7 @@ class Cron<T extends string = string> implements ICron<T> {
         : unit === "h"
         ? 3600000
         : 86400000;
+    if (!Number.isSafeInteger(value * factor)) throw new Error("Invalid delay");
     return value * factor;
   }
 
@@ -463,8 +448,8 @@ class Cron<T extends string = string> implements ICron<T> {
    * @template T The type of the cron expression.
    * @returns A `Date` object representing the next execution time.
    */
-  static getNext<T extends string = string>(cron: CronExpressionType<T>): Date {
-    return new CronParser(cron).getNext();
+  static getNext<T extends string = string>(cron: CronExpressionType<T>, from?: Date): Date {
+    return new CronParser(cron).getNext(from);
   }
 
   /**
@@ -472,9 +457,9 @@ class Cron<T extends string = string> implements ICron<T> {
    * @returns A `Date` object representing the previous execution time.
    */
   static getPrevious<T extends string = string>(
-    cron: CronExpressionType<T>
+    cron: CronExpressionType<T>, from?: Date
   ): Date {
-    return new CronParser(cron).getPrevious();
+    return new CronParser(cron).getPrevious(from);
   }
 
   /**

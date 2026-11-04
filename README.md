@@ -11,7 +11,9 @@ Cronbake supports a wide range of cron expressions, including standard formats, 
 - **Wildcards**: `* * * * * *` (second minute hour day month day-of-week)
 - **Ranges**: `1-10 * * * * *`
 - **Steps**: `1-10/2 * * * * *` (can be used with wildcards and ranges)
-- **Lists**: `1,2,3 * * * * *`
+- **Lists**: `1,2,3 * * * * *`, including mixed ranges and steps such as `1-5/2,10,20/20 * * * * *`
+
+Expressions require exactly six fields, separated by whitespace. Fields are checked against their documented bounds; steps must be positive integers. Invalid expressions throw when parsed or used to create a job, and `Cron.isValid()` returns `false`. Parsed field values are sorted and deduplicated.
 - **Presets**:
   - `@every_second`
   - `@every_minute`
@@ -525,3 +527,24 @@ Contributions are welcome! If you find any issues or have suggestions for improv
 ## License
 
 Cronbake is released under the [MIT License](./LICENSE).
+
+### Scheduling semantics
+
+Schedules use the process's local timezone. Day-of-month and day-of-week must
+both match when both are restricted. Missed ticks are not replayed. Polling
+advances the scheduled tick before invoking callbacks, so each observed tick
+runs at most once. Both scheduler modes honor `overrunProtection`: overlapping
+ticks are skipped by default, or may run concurrently when it is disabled.
+Stopping or pausing cancels future starts; callbacks already running finish.
+
+`Cron.getNext(expression, from)` and `Cron.getPrevious(expression, from)` accept
+an optional reference `Date`. Searches are bounded to 400 years and throw when
+no matching date exists. Invalid reference dates also throw.
+
+`autoStart: true` starts newly added jobs unless `start: false` is supplied.
+`bakeAll()` starts jobs in descending priority order. Priority controls start
+ordering only; it does not reserve resources or preempt callbacks.
+
+Persistence stores definitions and metrics, not callback functions. Restored
+jobs must be registered again with application callbacks before they can do
+useful work. File and Redis storage do not provide distributed execution locks.
