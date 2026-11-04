@@ -13,7 +13,7 @@
   "bugs": {
     "url": "https://github.com/chaqchase/cronbake/issues"
   },
-  "homepage": "https://github.com/chaqchase/cronbake",
+  "homepage": "https://cronbake.chaqchase.com",
   "main": "dist/index.js",
   "author": {
     "name": "Mohamed Achaq",
