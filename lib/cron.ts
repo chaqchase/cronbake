@@ -23,6 +23,7 @@ class Cron<T extends string = string> implements ICron<T> {
   onComplete: () => void;
   onError?: (error: Error) => void;
   priority: number;
+  timezone?: string;
   private interval: ReturnType<typeof setInterval> | null = null;
   private timeout: ReturnType<typeof setTimeout> | null = null;
   private next: Date | null = null;
@@ -95,7 +96,8 @@ class Cron<T extends string = string> implements ICron<T> {
     this.getMetrics = this.getMetrics.bind(this);
     this.resetMetrics = this.resetMetrics.bind(this);
 
-    this.parser = new CronParser(this.cron);
+    this.timezone = options.timezone;
+    this.parser = new CronParser(this.cron, this.timezone);
     this.validateCronExpression();
 
     if (options.start) {
@@ -460,8 +462,10 @@ class Cron<T extends string = string> implements ICron<T> {
    * @template T The type of the cron expression.
    * @returns A `Date` object representing the next execution time.
    */
-  static getNext<T extends string = string>(cron: CronExpressionType<T>, from?: Date): Date {
-    return new CronParser(cron).getNext(from);
+  static getNext<T extends string = string>(
+    cron: CronExpressionType<T>, from?: Date, timezone?: string
+  ): Date {
+    return new CronParser(cron, timezone).getNext(from);
   }
 
   /**
@@ -469,9 +473,9 @@ class Cron<T extends string = string> implements ICron<T> {
    * @returns A `Date` object representing the previous execution time.
    */
   static getPrevious<T extends string = string>(
-    cron: CronExpressionType<T>, from?: Date
+    cron: CronExpressionType<T>, from?: Date, timezone?: string
   ): Date {
-    return new CronParser(cron).getPrevious(from);
+    return new CronParser(cron, timezone).getPrevious(from);
   }
 
   /**

@@ -9,7 +9,66 @@ import {
   type OnDayStrType,
 } from "./types";
 
-/** Whether the process clock already showed this reading. A repeated local time resolves to its first occurrence. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SEARCH_LIMIT_MS = 400 * 365.2425 * DAY_MS;
+// In IANA data from 1970 to 2040, a zone's offset never changes twice within 7 days,
+// so a change that later reverses can't fall between two probes this far apart.
+const OFFSET_PROBE_MS = 3 * DAY_MS;
+
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zoneFormatter(timezone: string): Intl.DateTimeFormat {
+  let formatter = zoneFormatters.get(timezone);
+  if (!formatter) {
+    try {
+      formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+      });
+    } catch {
+      throw new Error(`Invalid timezone: ${timezone}`);
+    }
+    zoneFormatters.set(timezone, formatter);
+  }
+  return formatter;
+}
+
+/**
+ * How far the zone's clock is ahead of UTC at a whole-second instant, in milliseconds.
+ */
+function zoneOffset(timezone: string, instant: number): number {
+  const parts: Record<string, number> = {};
+  for (const { type, value } of zoneFormatter(timezone).formatToParts(instant)) {
+    parts[type] = Number(value);
+  }
+  const clock = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour % 24,
+    parts.minute,
+    parts.second,
+  );
+  return clock - instant;
+}
+
+/**
+ * Finds how far the current offset lasts, looking at most one probe ahead.
+ * @returns The last whole-second instant known to have this offset.
+ */
+/** Whether the zone's clock already showed this reading, because clocks have just gone back. */
+function repeatsZoneClock(timezone: string, instant: number, offset: number): boolean {
+  const earlier = zoneOffset(timezone, instant - DAY_MS);
+  return earlier > offset && zoneOffset(timezone, instant - (earlier - offset)) === earlier;
+}
+
+/** The same check on the process clock. A repeated local time resolves to its first occurrence. */
 function repeatsLocalClock(date: Date): boolean {
   const first = new Date(
     date.getFullYear(),
@@ -22,6 +81,24 @@ function repeatsLocalClock(date: Date): boolean {
   return first.getTime() !== date.getTime();
 }
 
+function lastInstantAtOffset(
+  timezone: string,
+  instant: number,
+  offset: number,
+  direction: 1 | -1,
+): number {
+  const probe = instant + direction * OFFSET_PROBE_MS;
+  if (zoneOffset(timezone, probe) === offset) return probe;
+  let same = instant;
+  let changed = probe;
+  while (Math.abs(changed - same) > 1000) {
+    const middle = same + Math.trunc((changed - same) / 2000) * 1000;
+    if (zoneOffset(timezone, middle) === offset) same = middle;
+    else changed = middle;
+  }
+  return same;
+}
+
 /**
  * A class that implements the `ICronParser` interface and provides methods to parse a cron expression
  * and get the next and previous execution times.
@@ -29,8 +106,14 @@ function repeatsLocalClock(date: Date): boolean {
 class CronParser<T extends string> implements ICronParser {
   /**
    * Creates a new instance of the `CronParser` class.
+   * @param timezone An IANA time zone name. Defaults to the process's local time zone.
    */
-  constructor(private cron: CronExpressionType<T>) {}
+  constructor(
+    private cron: CronExpressionType<T>,
+    private timezone?: string,
+  ) {
+    if (timezone !== undefined) zoneFormatter(timezone);
+  }
 
   /**
    * A map of cron expression aliases to their corresponding cron expressions.
@@ -174,6 +257,7 @@ class CronParser<T extends string> implements ICronParser {
 
   private findExecution(from: Date, direction: 1 | -1): Date {
     if (!Number.isFinite(from.getTime())) throw new Error("Invalid reference date");
+    if (this.timezone !== undefined) return this.findZonedExecution(from, direction, this.timezone);
     const fields = this.parse();
     // A schedule tied to certain hours runs once when clocks go back. One that covers every hour keeps its pace.
     const everyHour = fields.hour!.length === 24;
@@ -195,6 +279,60 @@ class CronParser<T extends string> implements ICronParser {
       date.setTime(date.getTime() + direction * 1000);
     }
     throw new Error("Cron expression has no execution within 400 years");
+  }
+
+  /**
+   * Searches a time zone one stretch of constant offset at a time. Walking real instants means
+   * a clock time skipped by a daylight saving change doesn't run, and a repeated one runs twice,
+   * which matches how the process's local time zone behaves.
+   */
+  private findZonedExecution(from: Date, direction: 1 | -1, timezone: string): Date {
+    const fields = this.parse();
+    const everyHour = fields.hour!.length === 24;
+    let instant = Math.floor(from.getTime() / 1000) * 1000 + direction * 1000;
+    const limit = instant + direction * SEARCH_LIMIT_MS;
+    while (direction > 0 ? instant <= limit : instant >= limit) {
+      const offset = zoneOffset(timezone, instant);
+      const last = lastInstantAtOffset(timezone, instant, offset, direction);
+      const clock = this.scanClock(fields, instant + offset, last + offset, direction);
+      if (clock === null) {
+        instant = last + direction * 1000;
+        continue;
+      }
+      const found = clock - offset;
+      if (everyHour || !repeatsZoneClock(timezone, found, offset)) return new Date(found);
+      instant = found + direction * 1000;
+    }
+    throw new Error("Cron expression has no execution within 400 years");
+  }
+
+  /**
+   * Finds the first matching clock time between two bounds. Clock times are held as
+   * milliseconds whose UTC fields read as the zone's clock.
+   */
+  private scanClock(
+    fields: CronTime,
+    start: number,
+    end: number,
+    direction: 1 | -1,
+  ): number | null {
+    const date = new Date(start);
+    while (direction > 0 ? date.getTime() <= end : date.getTime() >= end) {
+      if (!fields.month!.includes(date.getUTCMonth() + 1) ||
+          !fields.dayOfMonth!.includes(date.getUTCDate()) ||
+          !fields.dayOfWeek!.includes(date.getUTCDay())) {
+        date.setUTCDate(date.getUTCDate() + direction);
+        date.setUTCHours(direction > 0 ? 0 : 23, direction > 0 ? 0 : 59, direction > 0 ? 0 : 59, 0);
+        continue;
+      }
+      if (fields.second!.includes(date.getUTCSeconds()) &&
+          fields.minute!.includes(date.getUTCMinutes()) &&
+          fields.hour!.includes(date.getUTCHours())) {
+        return date.getTime();
+      }
+      date.setTime(date.getTime() + direction * 1000);
+    }
+    return null;
   }
 
   /**

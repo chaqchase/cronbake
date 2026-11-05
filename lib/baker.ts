@@ -291,6 +291,7 @@ class Baker implements IBaker {
         .map(([name, cron]) => ({
           name,
           cron: String(cron.cron),
+          timezone: cron.timezone,
           status: cron.getStatus(),
           priority: cron.priority,
           persist: this.jobPersistence.get(name) !== false,
@@ -344,6 +345,7 @@ class Baker implements IBaker {
           const options: CronOptions = {
             name: jobData.name,
             cron: jobData.cron,
+            timezone: jobData.timezone,
             callback: () => {
               this.logger.warn(
                 `Restored job '${jobData.name}' executed but no callback was provided`

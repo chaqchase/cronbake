@@ -15,7 +15,7 @@ Cronbake supports a wide range of cron expressions, including standard formats, 
 - **Steps**: `1-10/2 * * * * *` (can be used with wildcards and ranges)
 - **Lists**: `1,2,3 * * * * *`, including mixed ranges and steps such as `1-5/2,10,20/20 * * * * *`
 
-Expressions require exactly six fields, separated by whitespace. Fields are checked against their documented bounds; steps must be positive integers. Invalid expressions throw when parsed or used to create a job, and `Cron.isValid()` returns `false`. Parsed field values are sorted and deduplicated.
+Expressions require six fields, separated by whitespace. A seventh field is accepted only if it is `*`, which has no effect. Fields are checked against their documented bounds; steps must be positive integers. Invalid expressions throw when parsed or used to create a job, and `Cron.isValid()` returns `false`. Parsed field values are sorted and deduplicated.
 - **Presets**:
   - `@every_second`
   - `@every_minute`
@@ -54,6 +54,7 @@ Additional scheduling controls:
 
 - **Immediate/Delayed First Run**: Run the first callback immediately (`immediate: true`) or after a delay (`delay: '10s'`).
 - **Overrun Protection**: Skip new starts if a previous run is still executing (`overrunProtection: true`).
+- **Time Zones**: Run a job on the clock of any IANA time zone (`timezone: 'America/New_York'`).
 
 #### Cron Job Management
 
@@ -223,6 +224,15 @@ baker.add({
   immediate: true, // run the first time right away
   delay: "2s", // but wait 2 seconds before that first run
   overrunProtection: true, // skip overlaps if a previous run still executes
+  callback: async () => {
+    // Do work
+  },
+});
+
+baker.add({
+  name: "morning-report",
+  cron: "0 30 9 * * 1-5",
+  timezone: "America/New_York", // 09:30 in New York, wherever the process runs
   callback: async () => {
     // Do work
   },
@@ -518,8 +528,8 @@ const isValid = Cron.isValid(cronExpression); // true
 | `resetMetrics()`                                  | Resets the metrics and history of the cron job.                       |
 | `static create(options: CronOptions<T>)`          | Creates a new cron job with the specified options.                    |
 | `static parse(cron: CronExpressionType<T>)`       | Parses the specified cron expression and returns a `CronTime` object. |
-| `static getNext(cron: CronExpressionType<T>)`     | Gets the next execution time for the specified cron expression.       |
-| `static getPrevious(cron: CronExpressionType<T>)` | Gets the previous execution time for the specified cron expression.   |
+| `static getNext(cron: CronExpressionType<T>, from?: Date, timezone?: string)`     | Gets the next execution time for the specified cron expression.       |
+| `static getPrevious(cron: CronExpressionType<T>, from?: Date, timezone?: string)` | Gets the previous execution time for the specified cron expression.   |
 | `static isValid(cron: CronExpressionType<T>)`     | Checks if the specified string is a valid cron expression.            |
 
 ## Contributing
@@ -532,16 +542,22 @@ Cronbake is released under the [MIT License](./LICENSE).
 
 ### Scheduling semantics
 
-Schedules use the process's local timezone. Day-of-month and day-of-week must
-both match when both are restricted. Missed ticks are not replayed. Polling
+Schedules use the process's local timezone unless a job sets `timezone` to an
+IANA name, such as `America/New_York`. An unknown name throws when the job is
+created. In either case, a clock time skipped by a daylight saving change doesn't
+run that day. When clocks go back, a schedule tied to certain hours runs once, at
+the first occurrence, and one that covers every hour keeps its pace. Day-of-month and
+day-of-week must both match when both are restricted. Missed ticks are not
+replayed. Polling
 advances the scheduled tick before invoking callbacks, so each observed tick
 runs at most once. Both scheduler modes honor `overrunProtection`: overlapping
 ticks are skipped by default, or may run concurrently when it is disabled.
 Stopping or pausing cancels future starts; callbacks already running finish.
 
-`Cron.getNext(expression, from)` and `Cron.getPrevious(expression, from)` accept
-an optional reference `Date`. Searches are bounded to 400 years and throw when
-no matching date exists. Invalid reference dates also throw.
+`Cron.getNext(expression, from, timezone)` and
+`Cron.getPrevious(expression, from, timezone)` accept an optional reference
+`Date` and time zone. Searches are bounded to 400 years and throw when no
+matching date exists. Invalid reference dates also throw.
 
 `autoStart: true` starts newly added jobs unless `start: false` is supplied.
 `bakeAll()` starts jobs in descending priority order. Priority controls start
