@@ -102,6 +102,10 @@ interface ICron<T extends string = string> {
    */
   cron: CronExpressionType<T>;
   /**
+   * The IANA time zone the schedule follows, if the job sets one.
+   */
+  timezone?: string;
+  /**
    * The callback function to execute on each tick of the cron job.
    */
   callback: () => void | Promise<void>;
@@ -288,6 +292,11 @@ type CronOptions<T extends string = string> = {
    * Accepts number (ms) or strings like '500ms', '10s', '2m', '1h'.
    */
   delay?: number | string;
+  /**
+   * The IANA time zone the schedule follows, such as 'America/New_York'.
+   * Defaults to the process's local time zone.
+   */
+  timezone?: string;
 };
 
 type Status = "running" | "stopped" | "paused" | "error";

@@ -27,11 +27,14 @@ class Baker implements IBaker {
   private persistence: PersistenceOptions;
   private persistenceProvider?: PersistenceProvider;
   private enableMetrics: boolean;
+  private autoStart: boolean;
+  private saveQueue: Promise<void> = Promise.resolve();
   private onError?: (error: Error, jobName: string) => void;
   private logger: Logger;
 
   constructor(options: IBakerOptions = {}) {
     this.logger = options.logger ?? console;
+    this.autoStart = options.autoStart ?? false;
     this.config = {
       pollingInterval: options.schedulerConfig?.pollingInterval ?? 1000,
       useCalculatedTimeouts:
@@ -74,7 +77,8 @@ class Baker implements IBaker {
     }
 
     if (options.autoStart) {
-      this.initialRestorePromise.finally(() => this.bakeAll());
+      // A failed restore is reported above. The jobs added since should still start.
+      void this.initialRestorePromise.catch(() => {}).then(() => this.bakeAll());
     }
   }
 
@@ -101,6 +105,7 @@ class Baker implements IBaker {
 
     const enhancedOptions: CronOptions<T> = {
       ...options,
+      start: options.start ?? (this.autoStart && !this.isRestoring),
       maxHistory: options.maxHistory ?? this.config.maxHistoryEntries,
       logger: jobLogger,
       onError:
@@ -244,7 +249,7 @@ class Baker implements IBaker {
   }
 
   bakeAll(): void {
-    this.crons.forEach((cron) => cron.start());
+    [...this.crons.values()].sort((a, b) => b.priority - a.priority).forEach((cron) => cron.start());
   }
 
   stopAll(): void {
@@ -286,6 +291,7 @@ class Baker implements IBaker {
         .map(([name, cron]) => ({
           name,
           cron: String(cron.cron),
+          timezone: cron.timezone,
           status: cron.getStatus(),
           priority: cron.priority,
           persist: this.jobPersistence.get(name) !== false,
@@ -303,7 +309,10 @@ class Baker implements IBaker {
         jobs,
         config: this.config,
       } as const;
-      await this.persistenceProvider.save(state);
+      const provider = this.persistenceProvider;
+      const write = () => provider.save(state);
+      this.saveQueue = this.saveQueue.then(write, write);
+      await this.saveQueue;
     } catch (error) {
       throw new Error(`Failed to save state: ${error}`);
     }
@@ -336,6 +345,7 @@ class Baker implements IBaker {
           const options: CronOptions = {
             name: jobData.name,
             cron: jobData.cron,
+            timezone: jobData.timezone,
             callback: () => {
               this.logger.warn(
                 `Restored job '${jobData.name}' executed but no callback was provided`

@@ -308,7 +308,7 @@ describe("Baker", () => {
     const onError = jest.fn();
     baker.add({
       name: "failing-job",
-      cron: "* * * * * *",
+      cron: "@yearly",
       callback: () => {
         throw new Error("boom");
       },
@@ -435,7 +435,7 @@ describe("Baker", () => {
     let calls = 0;
     const slow = async () => {
       calls++;
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 1500));
     };
 
     configuredBaker.add({
@@ -450,7 +450,7 @@ describe("Baker", () => {
     await new Promise((r) => setTimeout(r, msToNext + 50));
 
     // Allow some time for overlapping starts
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, 1080));
     expect(calls).toBeGreaterThanOrEqual(2);
 
     configuredBaker.destroyAll();

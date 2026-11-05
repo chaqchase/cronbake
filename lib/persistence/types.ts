@@ -10,6 +10,7 @@ type PersistedExecutionHistory = {
 type PersistedJob = {
   name: string;
   cron: string;
+  timezone?: string;
   status: Status;
   priority: number;
   metrics?: JobMetrics;
