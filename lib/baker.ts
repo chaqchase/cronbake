@@ -58,7 +58,7 @@ class Baker implements IBaker {
         this.persistenceProvider = new FilePersistenceProvider(
           this.persistence.filePath!
         );
-      } else {
+      } else if (this.persistence.strategy === "redis") {
         throw new Error(
           "Redis persistence selected but no provider supplied. Pass persistence.provider or use FilePersistenceProvider."
         );
@@ -77,7 +77,8 @@ class Baker implements IBaker {
     }
 
     if (options.autoStart) {
-      void this.initialRestorePromise.then(() => this.bakeAll(), () => {});
+      // A failed restore is reported above. The jobs added since should still start.
+      void this.initialRestorePromise.catch(() => {}).then(() => this.bakeAll());
     }
   }
 

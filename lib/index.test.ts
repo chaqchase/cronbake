@@ -308,7 +308,7 @@ describe("Baker", () => {
     const onError = jest.fn();
     baker.add({
       name: "failing-job",
-      cron: "* * * * * *",
+      cron: "@yearly",
       callback: () => {
         throw new Error("boom");
       },

@@ -71,10 +71,14 @@ class Cron<T extends string = string> implements ICron<T> {
     this.overrunProtection = options.overrunProtection ?? true;
     this.immediate = options.immediate ?? false;
     this.initialDelayMs = this.parseDelay(options.delay);
-    if (typeof this.callback !== "function") throw new Error("Callback must be a function");
-    if (!Number.isInteger(this.maxHistory) || this.maxHistory < 0) throw new Error("Invalid history limit");
-    if (!Number.isFinite(this.pollingInterval) || this.pollingInterval <= 0 || this.pollingInterval > 2147483647) throw new Error("Invalid polling interval");
-    if (!Number.isFinite(this.priority)) throw new Error("Invalid priority");
+    // These warn instead of throwing: 0.4.0 accepted them, and a job that started then should still start.
+    // A missing callback is fine: a job can run on its onTick hook alone.
+    if (this.callback && typeof this.callback !== "function") this.warnAboutOption("callback", "isn't a function, so its runs will fail");
+    if (!Number.isInteger(this.maxHistory) || this.maxHistory < 0) this.warnAboutOption("maxHistory", "should be a whole number of at least 0");
+    if (!Number.isFinite(this.pollingInterval) || this.pollingInterval <= 0 || this.pollingInterval > 2147483647) {
+      this.warnAboutOption("pollingInterval", "should be between 1 and 2147483647 ms");
+    }
+    if (!Number.isFinite(this.priority)) this.warnAboutOption("priority", "should be a number");
 
     this.start = this.start.bind(this);
     this.stop = this.stop.bind(this);
@@ -397,15 +401,23 @@ class Cron<T extends string = string> implements ICron<T> {
   }
 
   /** Parse a human-friendly delay string or number into milliseconds */
+  private warnAboutOption(option: string, problem: string): void {
+    this.logger.warn(`Job '${this.name}': ${option} ${problem}`);
+  }
+
   private parseDelay(delay?: number | string): number | undefined {
     if (delay === undefined || delay === null) return undefined;
     if (typeof delay === "number") {
-      if (!Number.isFinite(delay) || delay < 0) throw new Error("Invalid delay");
-      return delay;
+      if (Number.isFinite(delay) && delay >= 0) return delay;
+      this.warnAboutOption("delay", "should be 0 or more, so it won't delay the first run");
+      return 0;
     }
     const str = String(delay).trim().toLowerCase();
     const match = str.match(/^(\d+)\s*(ms|s|m|h|d)?$/);
-    if (!match) throw new Error("Invalid delay");
+    if (!match) {
+      this.warnAboutOption("delay", "isn't a number or a duration such as 30s, so it won't delay the first run");
+      return undefined;
+    }
     const value = parseInt(match[1], 10);
     const unit = match[2] ?? "ms";
     const factor =
@@ -418,7 +430,7 @@ class Cron<T extends string = string> implements ICron<T> {
         : unit === "h"
         ? 3600000
         : 86400000;
-    if (!Number.isSafeInteger(value * factor)) throw new Error("Invalid delay");
+    if (!Number.isSafeInteger(value * factor)) this.warnAboutOption("delay", "is too large to schedule");
     return value * factor;
   }
 

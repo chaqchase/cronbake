@@ -9,6 +9,19 @@ import {
   type OnDayStrType,
 } from "./types";
 
+/** Whether the process clock already showed this reading. A repeated local time resolves to its first occurrence. */
+function repeatsLocalClock(date: Date): boolean {
+  const first = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+  );
+  return first.getTime() !== date.getTime();
+}
+
 /**
  * A class that implements the `ICronParser` interface and provides methods to parse a cron expression
  * and get the next and previous execution times.
@@ -133,6 +146,8 @@ class CronParser<T extends string> implements ICronParser {
    */
   parse(): CronTime {
     const fields = this.parseStr(this.cron.trim()).split(/\s+/);
+    // 0.4.0 ignored a seventh field. A `*` there changes nothing, so it keeps working.
+    if (fields.length === 7 && fields[6] === "*") fields.pop();
     if (fields.length !== 6) throw new Error("Cron expressions require six fields");
     const [second, minute, hour, dayOfMonth, month, dayOfWeek] = fields;
     return {
@@ -160,6 +175,8 @@ class CronParser<T extends string> implements ICronParser {
   private findExecution(from: Date, direction: 1 | -1): Date {
     if (!Number.isFinite(from.getTime())) throw new Error("Invalid reference date");
     const fields = this.parse();
+    // A schedule tied to certain hours runs once when clocks go back. One that covers every hour keeps its pace.
+    const everyHour = fields.hour!.length === 24;
     const date = new Date(Math.floor(from.getTime() / 1000) * 1000);
     date.setTime(date.getTime() + direction * 1000);
     const limit = from.getFullYear() + direction * 400;
@@ -167,11 +184,14 @@ class CronParser<T extends string> implements ICronParser {
       if (!fields.month!.includes(date.getMonth() + 1) ||
           !fields.dayOfMonth!.includes(date.getDate()) ||
           !fields.dayOfWeek!.includes(date.getDay())) {
+        const before = date.getTime();
         date.setDate(date.getDate() + direction);
         date.setHours(direction > 0 ? 0 : 23, direction > 0 ? 0 : 59, direction > 0 ? 0 : 59, 0);
+        // A clock change near midnight can put the target behind us. Keep moving.
+        if ((date.getTime() - before) * direction <= 0) date.setTime(before + direction * 1000);
         continue;
       }
-      if (this.checkCronTime(fields, date)) return date;
+      if (this.checkCronTime(fields, date) && (everyHour || !repeatsLocalClock(date))) return date;
       date.setTime(date.getTime() + direction * 1000);
     }
     throw new Error("Cron expression has no execution within 400 years");

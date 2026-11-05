@@ -17,6 +17,13 @@ describe("strict cron parsing", () => {
     });
   }
 
+  test("accepts a seventh field of *, which 0.4.0 ignored", () => {
+    expect(Cron.isValid("0 0 12 * * * *")).toBe(true);
+    expect(Cron.parse("0 0 12 * * * *")).toEqual(Cron.parse("0 0 12 * * *"));
+    expect(Cron.isValid("0 0 12 * * * 2027")).toBe(false);
+    expect(Cron.isValid("0 0 12 * * * * *")).toBe(false);
+  });
+
   test("combines lists, ranges and steps in sorted unique order", () => {
     expect(Cron.parse("1-5/2,10,3,20/20 * * * * *").second).toEqual([1, 3, 5, 10, 20, 40]);
   });
