@@ -1,5 +1,24 @@
 # cronbake
 
+## 0.5.0
+
+### Minor Changes
+
+- 707ab14: Add a `timezone` job option that runs a schedule on the clock of an IANA time zone, and an optional `timezone` argument to `Cron.getNext` and `Cron.getPrevious`. The time zone is saved and restored with persisted jobs.
+- 07167e7: Add optional reference dates and bounded calendar execution searches. Fix duplicate polling executions, honor overlap settings in both scheduler modes, and prevent callbacks from resurrecting stopped schedulers. Warn about invalid delay, history, priority and polling options, copy history snapshots defensively, serialize provider writes, apply autoStart to new jobs, and order bulk starts by priority.
+- 4716acd: A few things behave differently when you upgrade from 0.4:
+
+  - `autoStart: true` also starts jobs added after the baker is created, including any `immediate` run. Pass `start: false` to hold one back.
+  - `overrunProtection: false` now lets runs overlap in the default scheduler mode. In 0.4 they ran one at a time.
+  - Malformed expressions that 0.4 accepted now throw when the job is created, such as `1.5 * * * * *`, `1,,2 * * * * *`, `*/x * * * * *`, `0 0 12 * * 1#2` and `@every_1_minute`. These ran on a different schedule than they appeared to: `@every_1_minute` ran every second and `1#2` ran every Monday. A saved job with one of these is skipped with a warning when state is restored.
+  - `Cron.parse` returns field values sorted and without duplicates.
+
+### Patch Changes
+
+- 4716acd: Fix `Cron.getPrevious` and `lastExecution()` freezing the process when the search crossed a clock going forward. A schedule that covers every hour now keeps its pace through an hour repeated when clocks go back, where 0.4 paused it for that hour. A schedule tied to certain hours still runs once.
+- 7af6b85: Metadata: Point the npm homepage to the documentation site at https://cronbake.chaqchase.com.
+- 07167e7: Reject malformed cron fields, out-of-range values, invalid presets, and zero steps before scheduling. Out-of-range values and names such as `MON` used to freeze the process when the job started. Support mixed lists of ranges and steps, normalize whitespace, and return sorted unique field values.
+
 ## 0.4.0
 
 ### Features
