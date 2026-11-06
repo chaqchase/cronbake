@@ -12,10 +12,20 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
 
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v2
+
+      # npm trusted publishing needs Node 22.14 and npm 11.5.1 or later.
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
 
       - name: Install Bun
         run: |
@@ -41,4 +51,3 @@ jobs:
           title: 'chore: update package versions'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
