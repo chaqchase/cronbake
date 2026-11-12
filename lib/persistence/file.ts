@@ -1,5 +1,6 @@
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { randomUUID } from "node:crypto";
 import { PersistedState, PersistenceProvider } from "./types";
 
 class FilePersistenceProvider implements PersistenceProvider {
@@ -9,37 +10,35 @@ class FilePersistenceProvider implements PersistenceProvider {
 
   async save(state: PersistedState): Promise<void> {
     const filePath = path.resolve(this.filePath);
-    const dir = path.dirname(filePath);
-    const tmp = `${filePath}.tmp`;
-
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
+    // Capture now: callers may reuse or mutate their snapshot while a write waits.
+    const data = JSON.stringify(state, null, 2);
     const write = async () => {
-      const data = JSON.stringify(state, null, 2);
-      // Atomic write: write to temp, then rename over destination
-      await fs.promises.writeFile(tmp, data, "utf8");
-      await fs.promises.rename(tmp, filePath);
+      const tmp = `${filePath}.${randomUUID()}.tmp`;
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      try {
+        await fs.writeFile(tmp, data, { encoding: "utf8", flag: "wx", mode: 0o600 });
+        await fs.rename(tmp, filePath);
+      } finally {
+        await fs.rm(tmp, { force: true });
+      }
     };
-
-    // Serialize writes to avoid interleaving
     this.queue = this.queue.then(write, write);
     return this.queue;
   }
 
   async load(): Promise<PersistedState | null> {
-    const filePath = path.resolve(this.filePath);
-    if (!fs.existsSync(filePath)) return null;
+    let data: string;
     try {
-      const data = await fs.promises.readFile(filePath, "utf8");
-      const state = JSON.parse(data);
-      if (!state || typeof state !== "object") return null;
-      return state as PersistedState;
-    } catch {
-      // If file is mid-write or corrupted, return null so caller can retry later
-      return null;
+      data = await fs.readFile(path.resolve(this.filePath), "utf8");
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      throw error;
     }
+    const state = JSON.parse(data);
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      throw new Error("Invalid persisted state");
+    }
+    return state as PersistedState;
   }
 }
 

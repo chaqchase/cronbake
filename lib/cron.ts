@@ -62,7 +62,7 @@ class Cron<T extends string = string> implements ICron<T> {
     this.name = options.name;
     this.cron = options.cron;
     this.callback = options.callback;
-    this.onTick = CBResolver.bind(this, options.onTick, undefined, this.logger);
+    this.onTick = options.onTick ?? (() => {});
     this.onComplete = CBResolver.bind(this, options.onComplete, undefined, this.logger);
     this.onError = options.onError;
     this.priority = options.priority ?? 0;
@@ -75,11 +75,18 @@ class Cron<T extends string = string> implements ICron<T> {
     // These warn instead of throwing: 0.4.0 accepted them, and a job that started then should still start.
     // A missing callback is fine: a job can run on its onTick hook alone.
     if (this.callback && typeof this.callback !== "function") this.warnAboutOption("callback", "isn't a function, so its runs will fail");
-    if (!Number.isInteger(this.maxHistory) || this.maxHistory < 0) this.warnAboutOption("maxHistory", "should be a whole number of at least 0");
-    if (!Number.isFinite(this.pollingInterval) || this.pollingInterval <= 0 || this.pollingInterval > 2147483647) {
-      this.warnAboutOption("pollingInterval", "should be between 1 and 2147483647 ms");
+    if (!Number.isSafeInteger(this.maxHistory) || this.maxHistory < 0) {
+      this.warnAboutOption("maxHistory", "should be a whole number of at least 0; using 100");
+      this.maxHistory = 100;
     }
-    if (!Number.isFinite(this.priority)) this.warnAboutOption("priority", "should be a number");
+    if (!Number.isFinite(this.pollingInterval) || this.pollingInterval < 1 || this.pollingInterval > 2147483647) {
+      this.warnAboutOption("pollingInterval", "should be between 1 and 2147483647 ms; using 1000");
+      this.pollingInterval = 1000;
+    }
+    if (!Number.isFinite(this.priority)) {
+      this.warnAboutOption("priority", "should be a number; using 0");
+      this.priority = 0;
+    }
 
     this.start = this.start.bind(this);
     this.stop = this.stop.bind(this);
@@ -156,7 +163,9 @@ class Cron<T extends string = string> implements ICron<T> {
     if (this.status === "running") {
       return;
     }
-    this.next = this.immediate ? new Date(Date.now() + (this.initialDelayMs ?? 0)) : this.parser.getNext();
+    // Reject impossible schedules synchronously, even with an immediate first run.
+    const scheduled = this.parser.getNext();
+    this.next = this.immediate ? new Date(Date.now() + (this.initialDelayMs ?? 0)) : scheduled;
     this.status = "running";
 
     if (this.immediate) {
@@ -164,7 +173,6 @@ class Cron<T extends string = string> implements ICron<T> {
       return;
     }
 
-    this.next = this.parser.getNext();
     if (this.useCalculatedTimeouts) {
       this.scheduleWithTimeout();
     } else {
@@ -198,6 +206,11 @@ class Cron<T extends string = string> implements ICron<T> {
     const generation = this.generation;
     this.timeout = setTimeout(() => {
       if (this.status !== "running" || generation !== this.generation) return;
+      // Timers track elapsed time, while cron schedules follow the wall clock.
+      if (this.next && Date.now() < this.next.getTime()) {
+        this.scheduleWithTimeout();
+        return;
+      }
       this.next = this.parser.getNext();
       this.scheduleWithTimeout();
       void this.executeJob();
@@ -240,6 +253,7 @@ class Cron<T extends string = string> implements ICron<T> {
       return;
     }
     const startTime = Date.now();
+    const startedAt = performance.now();
     let success = true;
     let error: string | undefined;
     this.activeExecutions++;
@@ -267,7 +281,7 @@ class Cron<T extends string = string> implements ICron<T> {
       this.activeExecutions--;
     }
 
-    const duration = Date.now() - startTime;
+    const duration = Math.max(0, performance.now() - startedAt);
     this.metrics.totalExecutions++;
     if (success) {
       this.metrics.successfulExecutions++;
@@ -287,11 +301,14 @@ class Cron<T extends string = string> implements ICron<T> {
       error,
     };
 
-    this.history.unshift(historyEntry);
+    this.history.push(historyEntry);
+    this.history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     if (this.history.length > this.maxHistory) {
       this.history = this.history.slice(0, this.maxHistory);
     }
-    this.lastRunTime = historyEntry.timestamp;
+    if (!this.lastRunTime || startTime > this.lastRunTime.getTime()) {
+      this.lastRunTime = new Date(startTime);
+    }
   }
 
   stop(): void {
@@ -314,8 +331,8 @@ class Cron<T extends string = string> implements ICron<T> {
     if (this.status !== "paused") {
       return;
     }
-    this.status = "running";
     this.next = this.parser.getNext();
+    this.status = "running";
 
     if (this.useCalculatedTimeouts) {
       this.scheduleWithTimeout();
@@ -394,12 +411,34 @@ class Cron<T extends string = string> implements ICron<T> {
     history?: ExecutionHistory[];
     metrics?: JobMetrics;
   }): void {
-    if (state.history) {
-      this.history = state.history.slice(0, this.maxHistory);
+    // Validate the entire snapshot before changing any live state.
+    let history: ExecutionHistory[] | undefined;
+    if (state.history !== undefined) {
+      if (!Array.isArray(state.history)) throw new Error("Invalid execution history");
+      history = state.history.map(entry => {
+        if (!entry || !(entry.timestamp instanceof Date) || !Number.isFinite(entry.timestamp.getTime()) ||
+            !Number.isFinite(entry.duration) || entry.duration < 0 || typeof entry.success !== "boolean" ||
+            (entry.error !== undefined && typeof entry.error !== "string")) {
+          throw new Error("Invalid execution history entry");
+        }
+        return { ...entry, timestamp: new Date(entry.timestamp) };
+      }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     }
-    if (state.metrics) {
-      this.metrics = { ...state.metrics };
+    if (state.metrics !== undefined) {
+      const metrics = state.metrics;
+      if (!metrics || [metrics.totalExecutions, metrics.successfulExecutions, metrics.failedExecutions,
+          metrics.skippedExecutions ?? 0].some(value => !Number.isSafeInteger(value) || value < 0) ||
+          metrics.totalExecutions !== metrics.successfulExecutions + metrics.failedExecutions ||
+          [metrics.averageExecutionTime, metrics.lastExecutionTime ?? 0].some(value => !Number.isFinite(value) || value < 0) ||
+          (metrics.lastError !== undefined && typeof metrics.lastError !== "string")) {
+        throw new Error("Invalid job metrics");
+      }
     }
+    if (history !== undefined) {
+      this.lastRunTime = history[0] ? new Date(history[0].timestamp) : null;
+      this.history = history.slice(0, this.maxHistory);
+    }
+    if (state.metrics !== undefined) this.metrics = { ...state.metrics };
   }
 
   /** Parse a human-friendly delay string or number into milliseconds */
@@ -410,7 +449,7 @@ class Cron<T extends string = string> implements ICron<T> {
   private parseDelay(delay?: number | string): number | undefined {
     if (delay === undefined || delay === null) return undefined;
     if (typeof delay === "number") {
-      if (Number.isFinite(delay) && delay >= 0) return delay;
+      if (Number.isFinite(delay) && delay >= 0 && delay <= 8640000000000000 - Date.now()) return delay;
       this.warnAboutOption("delay", "should be 0 or more, so it won't delay the first run");
       return 0;
     }
@@ -432,7 +471,10 @@ class Cron<T extends string = string> implements ICron<T> {
         : unit === "h"
         ? 3600000
         : 86400000;
-    if (!Number.isSafeInteger(value * factor)) this.warnAboutOption("delay", "is too large to schedule");
+    if (!Number.isSafeInteger(value * factor) || value * factor > 8640000000000000 - Date.now()) {
+      this.warnAboutOption("delay", "is too large to schedule, so it won't delay the first run");
+      return 0;
+    }
     return value * factor;
   }
 

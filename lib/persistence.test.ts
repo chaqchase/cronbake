@@ -55,7 +55,7 @@ describe('Persistence Providers', () => {
     });
     baker1.add({ name: 'restored-job', cron: '@daily', callback: () => {} });
     await baker1.saveState();
-    baker1.destroyAll();
+    baker1.stopAll();
 
     const baker2 = new Baker({
       persistence: { enabled: true, autoRestore: true, strategy: 'file', provider },
@@ -81,7 +81,7 @@ describe('Persistence Providers', () => {
     });
     baker1.add({ name: 'predefined-job', cron: '@daily', callback: () => {} });
     await baker1.saveState();
-    baker1.destroyAll();
+    baker1.stopAll();
 
     const baker2 = new Baker({
       persistence: { enabled: true, autoRestore: false, strategy: 'file', provider },
@@ -106,7 +106,7 @@ describe('Persistence Providers', () => {
     baker1.add({ name: 'persisted-job', cron: '@daily', callback: () => {}, persist: true });
     baker1.add({ name: 'ephemeral-job', cron: '@hourly', callback: () => {}, persist: false });
     await baker1.saveState();
-    baker1.destroyAll();
+    baker1.stopAll();
 
     const baker2 = new Baker({
       persistence: { enabled: true, autoRestore: true, strategy: 'file', provider },
@@ -141,7 +141,7 @@ describe('Persistence Providers', () => {
     await sleep(120);
     baker1.stopAll();
     await baker1.saveState();
-    baker1.destroyAll();
+    baker1.stopAll();
 
     const baker2 = new Baker({
       enableMetrics: true,

@@ -193,6 +193,7 @@ class CronParser<T extends string> implements ICronParser {
    */
   private parseBetweenStr(str: BetweenStrType): string {
     const [, start, end] = str.split("_");
+    if (Number(start) >= Number(end)) throw new Error(`Invalid hour range: ${str}`);
     return `0 0 ${start}-${end} * * *`;
   }
 
@@ -261,7 +262,7 @@ class CronParser<T extends string> implements ICronParser {
     const fields = this.parse();
     // A schedule tied to certain hours runs once when clocks go back. One that covers every hour keeps its pace.
     const everyHour = fields.hour!.length === 24;
-    const date = new Date(Math.floor(from.getTime() / 1000) * 1000);
+    const date = new Date((direction > 0 ? Math.floor(from.getTime() / 1000) : Math.ceil(from.getTime() / 1000)) * 1000);
     date.setTime(date.getTime() + direction * 1000);
     const limit = from.getFullYear() + direction * 400;
     while (direction > 0 ? date.getFullYear() <= limit : date.getFullYear() >= limit) {
@@ -283,13 +284,13 @@ class CronParser<T extends string> implements ICronParser {
 
   /**
    * Searches a time zone one stretch of constant offset at a time. Walking real instants means
-   * a clock time skipped by a daylight saving change doesn't run, and a repeated one runs twice,
-   * which matches how the process's local time zone behaves.
+   * a clock time skipped by a daylight saving change doesn't run. Repeated times are
+   * filtered for schedules tied to specific hours, just as in the process's local zone.
    */
   private findZonedExecution(from: Date, direction: 1 | -1, timezone: string): Date {
     const fields = this.parse();
     const everyHour = fields.hour!.length === 24;
-    let instant = Math.floor(from.getTime() / 1000) * 1000 + direction * 1000;
+    let instant = (direction > 0 ? Math.floor(from.getTime() / 1000) : Math.ceil(from.getTime() / 1000)) * 1000 + direction * 1000;
     const limit = instant + direction * SEARCH_LIMIT_MS;
     while (direction > 0 ? instant <= limit : instant >= limit) {
       const offset = zoneOffset(timezone, instant);
