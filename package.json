@@ -36,7 +36,9 @@
     "build": "rm -rf dist && tsup lib/index.ts --format cjs,esm --dts",
     "test": "bun test",
     "version": "changeset version",
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "test:package": "node scripts/test-package.mjs",
+    "validate": "bun run check && bun test && bun run build && bun run test:package"
   },
   "devDependencies": {
     "bun-types": "latest",

@@ -566,3 +566,36 @@ ordering only; it does not reserve resources or preempt callbacks.
 Persistence stores definitions and metrics, not callback functions. Restored
 jobs must be registered again with application callbacks before they can do
 useful work. File and Redis storage do not provide distributed execution locks.
+
+### Reliability and validation
+
+Run `bun install --frozen-lockfile` followed by `bun run validate` before contributing
+or releasing. Validation checks TypeScript, runs the Bun test suite, builds both
+module formats, and tests the npm tarball in isolated Node ESM and CommonJS
+consumers (including their TypeScript declarations). Node and npm must be on your
+PATH. CI runs this validation with Node 22 and 24 in UTC and America/New_York.
+
+Job callback and `onTick` failures both count as failed executions and reach the
+job's `onError` handler (or the Baker handler). Async error handlers are awaited;
+handler failures are logged without preventing subsequent runs. Execution duration
+uses a monotonic clock, so system clock adjustments cannot produce negative durations.
+
+Invalid `maxHistory`, `pollingInterval`, and `priority` values warn and fall back
+to 100 entries, 1000 ms, and 0 respectively. Unrepresentable delays warn and run
+without an initial delay. Impossible schedules throw synchronously from `start()`,
+including when `immediate` is enabled.
+
+Persistence restoration preserves paused jobs and validates history and metrics
+before installing jobs. Invalid records are skipped with a warning. Concurrent
+`restoreState()` calls wait for the same load. Jobs registered during restoration
+are saved after a successful load; `start: false` remains respected. Failed loads
+reject `ready()` and do not automatically save a partial registration snapshot.
+Handle that rejection before making further persistence changes.
+
+File and Redis providers return `null` only when state is missing. Corrupt JSON,
+invalid top-level data, and storage access failures now reject `load()` instead
+of silently behaving like an empty store. Re-register application callbacks after
+restoring; the stored definitions cannot serialize functions. Writes are ordered
+within a provider, and separate file providers use unique temporary files. Multiple
+writers still use last-writer-wins semantics; these providers do not coordinate
+jobs or merge independent snapshots.

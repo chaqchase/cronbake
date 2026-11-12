@@ -22,6 +22,11 @@ class Baker implements IBaker {
   private restoredJobs: Set<string> = new Set();
   private jobPersistence: Map<string, boolean> = new Map();
   private isRestoring = false;
+  private restorePromise?: Promise<void>;
+  private pendingStarts = new Map<string, ICron>();
+  private changedDuringRestore = false;
+  private restoreGeneration = 0;
+  private removedDuringRestore = new Set<string>();
   private initialRestorePromise: Promise<void> = Promise.resolve();
   private config: SchedulerConfig;
   private persistence: PersistenceOptions;
@@ -75,26 +80,13 @@ class Baker implements IBaker {
       });
       this.initialRestorePromise = restorePromise;
     }
-
-    if (options.autoStart) {
-      // A failed restore is reported above. The jobs added since should still start.
-      void this.initialRestorePromise.catch(() => {}).then(() => this.bakeAll());
-    }
   }
 
   add<T extends string = string>(options: CronOptions<T>): ICron<T> {
     const existingCron = this.crons.get(options.name);
-    if (existingCron) {
-      if (this.restoredJobs.has(options.name)) {
-        existingCron.destroy();
-        this.crons.delete(options.name);
-        this.restoredJobs.delete(options.name);
-        this.jobPersistence.delete(options.name);
-      } else {
-        throw new Error(`Cron job with name '${options.name}' already exists`);
-      }
+    if (existingCron && !this.restoredJobs.has(options.name)) {
+      throw new Error(`Cron job with name '${options.name}' already exists`);
     }
-    this.jobPersistence.delete(options.name);
 
     const cronConfig = {
       useCalculatedTimeouts: this.config.useCalculatedTimeouts,
@@ -105,35 +97,43 @@ class Baker implements IBaker {
 
     const enhancedOptions: CronOptions<T> = {
       ...options,
-      start: options.start ?? (this.autoStart && !this.isRestoring),
+      start: !this.isRestoring && (options.start ?? this.autoStart),
       maxHistory: options.maxHistory ?? this.config.maxHistoryEntries,
       logger: jobLogger,
       onError:
         options.onError ??
         ((error: Error) => {
           if (this.onError) {
-            this.onError(error, options.name);
+            return this.onError(error, options.name);
           } else {
             jobLogger.warn(`Cron job '${options.name}' failed:`, error);
           }
         }),
     };
 
+    // Construct successfully before discarding a restored definition.
     const cron = Cron.create(enhancedOptions, cronConfig);
+    if (existingCron) {
+      existingCron.destroy();
+      this.restoredJobs.delete(options.name);
+    }
+    if (this.isRestoring && (options.start ?? this.autoStart)) {
+      this.pendingStarts.set(cron.name, cron);
+    }
     const shouldPersist = options.persist ?? true;
     this.jobPersistence.set(cron.name, shouldPersist);
     this.crons.set(cron.name, cron);
 
-    if (this.persistence.enabled && !this.isRestoring) {
-      this.saveState().catch((err) => {
-        this.logger.warn("Failed to save state:", err);
-      });
-    }
-
+    this.persistChange();
     return cron;
   }
 
   remove(name: string): void {
+    this.pendingStarts.delete(name);
+    if (this.isRestoring) {
+      this.removedDuringRestore.add(name);
+      this.changedDuringRestore = true;
+    }
     const cron = this.crons.get(name);
     if (cron) {
       cron.destroy();
@@ -141,11 +141,7 @@ class Baker implements IBaker {
       this.restoredJobs.delete(name);
       this.jobPersistence.delete(name);
 
-      if (this.persistence.enabled) {
-        this.saveState().catch((err) => {
-          this.logger.warn("Failed to save state:", err);
-        });
-      }
+      this.persistChange();
     }
   }
 
@@ -157,6 +153,7 @@ class Baker implements IBaker {
   }
 
   stop(name: string): void {
+    this.pendingStarts.delete(name);
     const cron = this.crons.get(name);
     if (cron) {
       cron.stop();
@@ -164,6 +161,7 @@ class Baker implements IBaker {
   }
 
   pause(name: string): void {
+    this.pendingStarts.delete(name);
     const cron = this.crons.get(name);
     if (cron) {
       cron.pause();
@@ -178,19 +176,7 @@ class Baker implements IBaker {
   }
 
   destroy(name: string): void {
-    const cron = this.crons.get(name);
-    if (cron) {
-      cron.destroy();
-      this.crons.delete(name);
-      this.restoredJobs.delete(name);
-      this.jobPersistence.delete(name);
-
-      if (this.persistence.enabled) {
-        this.saveState().catch((err) => {
-          this.logger.warn("Failed to save state:", err);
-        });
-      }
-    }
+    this.remove(name);
   }
 
   getStatus(name: string): Status {
@@ -253,10 +239,12 @@ class Baker implements IBaker {
   }
 
   stopAll(): void {
+    this.pendingStarts.clear();
     this.crons.forEach((cron) => cron.stop());
   }
 
   pauseAll(): void {
+    this.pendingStarts.clear();
     this.crons.forEach((cron) => cron.pause());
   }
 
@@ -265,16 +253,23 @@ class Baker implements IBaker {
   }
 
   destroyAll(): void {
+    this.restoreGeneration++;
+    this.pendingStarts.clear();
     this.crons.forEach((cron) => cron.destroy());
     this.crons.clear();
     this.restoredJobs.clear();
     this.jobPersistence.clear();
 
-    if (this.persistence.enabled) {
-      this.saveState().catch((err) => {
-        this.logger.warn("Failed to save state:", err);
-      });
+    this.persistChange();
+  }
+
+  private persistChange(): void {
+    if (!this.persistence.enabled) return;
+    if (this.isRestoring) {
+      this.changedDuringRestore = true;
+      return;
     }
+    void this.saveState().catch(err => this.logger.warn("Failed to save state:", err));
   }
 
   resetAllMetrics(): void {
@@ -285,6 +280,8 @@ class Baker implements IBaker {
 
   async saveState(): Promise<void> {
     if (!this.persistence.enabled || !this.persistenceProvider) return;
+    // Don't replace stored definitions with a partial view while loading them.
+    if (this.restorePromise) await this.restorePromise;
     try {
       const jobs = Array.from(this.crons.entries())
         .filter(([name]) => this.jobPersistence.get(name) !== false)
@@ -318,72 +315,84 @@ class Baker implements IBaker {
     }
   }
 
-  async restoreState(): Promise<void> {
-    if (!this.persistence.enabled || !this.persistenceProvider) return;
-    if (this.isRestoring) return;
+  restoreState(): Promise<void> {
+    if (!this.persistence.enabled || !this.persistenceProvider) return Promise.resolve();
+    if (this.restorePromise) return this.restorePromise;
     this.isRestoring = true;
+    let loaded = false;
+    this.restorePromise = this.loadState().then(() => { loaded = true; }).finally(() => {
+      this.isRestoring = false;
+      this.restorePromise = undefined;
+      const pending = [...this.pendingStarts.values()].sort((a, b) => b.priority - a.priority);
+      this.pendingStarts.clear();
+      this.removedDuringRestore.clear();
+      for (const cron of pending) {
+        try { cron.start(); }
+        catch (error) { this.logger.warn(`Failed to start job '${cron.name}':`, error); }
+      }
+      if (this.changedDuringRestore) {
+        this.changedDuringRestore = false;
+        // A failed load must not overwrite stored jobs with our incomplete view.
+        if (loaded) this.persistChange();
+      }
+    });
+    return this.restorePromise;
+  }
+
+  private async loadState(): Promise<void> {
+    const generation = this.restoreGeneration;
     try {
-      const state = await this.persistenceProvider.load();
-      if (!state) return;
-      if (!state.jobs || !Array.isArray(state.jobs)) {
-        throw new Error("Invalid state format");
+      const state = await this.persistenceProvider!.load();
+      if (!state || generation !== this.restoreGeneration) return;
+      if (state.version !== 1 || !Array.isArray(state.jobs)) {
+        throw new Error("Invalid or unsupported state format");
       }
       let restoredCount = 0;
       for (const jobData of state.jobs) {
-        if (!jobData.name || !jobData.cron) {
+        if (!jobData || typeof jobData.name !== "string" || !jobData.name || typeof jobData.cron !== "string" || !jobData.cron) {
           this.logger.warn("Skipping invalid job data:", jobData);
           continue;
         }
-        if (jobData.persist === false) {
-          continue;
-        }
-        if (this.crons.has(jobData.name)) {
-          // User code already defined this job; treat their configuration as canonical.
-          continue;
-        }
+        if (jobData.persist === false || this.removedDuringRestore.has(jobData.name) || this.crons.has(jobData.name)) continue;
+        let cron: Cron | undefined;
         try {
-          const options: CronOptions = {
+          if (!["running", "stopped", "paused", "error"].includes(jobData.status)) throw new Error("Invalid job status");
+          if (jobData.timezone !== undefined && typeof jobData.timezone !== "string") throw new Error("Invalid job timezone");
+          cron = new Cron({
             name: jobData.name,
             cron: jobData.cron,
             timezone: jobData.timezone,
             callback: () => {
-              this.logger.warn(
-                `Restored job '${jobData.name}' executed but no callback was provided`
-              );
+              this.logger.warn(`Restored job '${jobData.name}' executed but no callback was provided`);
             },
+            logger: this.logger,
+            maxHistory: this.config.maxHistoryEntries,
             priority: jobData.priority,
-            start: jobData.status === "running",
-            persist: true,
-          };
-          this.add(options);
-          const cron = this.crons.get(jobData.name);
-          if (
-            cron &&
-            typeof cron.hydratePersistence === "function" &&
-            this.enableMetrics
-          ) {
-            const history = jobData.history?.map((entry) => ({
-              ...entry,
-              timestamp: new Date(entry.timestamp),
-            }));
-            cron.hydratePersistence({
-              history,
-              metrics: jobData.metrics,
-            });
+          }, this.config);
+          if (this.enableMetrics) {
+            if (jobData.history !== undefined && !Array.isArray(jobData.history)) throw new Error("Invalid job history");
+            const history = jobData.history?.map(entry => ({ ...entry, timestamp: new Date(entry.timestamp) }));
+            cron.hydratePersistence({ history, metrics: jobData.metrics });
           }
-          this.restoredJobs.add(jobData.name);
+          if (jobData.status === "paused") {
+            cron.start();
+            cron.pause();
+          } else if (jobData.status === "running" || this.autoStart) {
+            cron.start();
+          }
+          // Commit only a fully validated job; corrupt records must not leave timers or entries behind.
+          this.crons.set(cron.name, cron);
+          this.jobPersistence.set(cron.name, true);
+          this.restoredJobs.add(cron.name);
           restoredCount++;
         } catch (error) {
+          cron?.destroy();
           this.logger.warn(`Failed to restore job '${jobData.name}':`, error);
         }
       }
-      if (restoredCount > 0) {
-        this.logger.info(`Restored ${restoredCount} cron jobs from persistence`);
-      }
+      if (restoredCount > 0) this.logger.info(`Restored ${restoredCount} cron jobs from persistence`);
     } catch (error) {
       throw new Error(`Failed to restore state: ${error}`);
-    } finally {
-      this.isRestoring = false;
     }
   }
 
