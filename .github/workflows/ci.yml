@@ -4,26 +4,37 @@ on:
   push:
     branches: ['main']
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Test Bun
+    name: Test Bun and Node ${{ matrix.node }} (${{ matrix.timezone }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+        timezone: [UTC, America/New_York]
+    env:
+      TZ: ${{ matrix.timezone }}
 
     steps:
       - uses: actions/checkout@v2
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+
       - name: Install Bun
-        run: |
-          curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.6'
 
       - name: Install Dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
-      - name: Build
-        run: bun run build
-
-      - name: Run Test
-        run: bun test
+      - name: Validate source and packaged consumers
+        run: bun run validate
